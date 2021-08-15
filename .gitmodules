@@ -1,6 +1,6 @@
 [submodule "deps/curl"]
 	path = deps/curl
-	url = https://github.com/curl/curl
+	url = https://github.com/GerHobbelt/curl
 [submodule "deps/libuv"]
 	path = deps/libuv
 	url = https://github.com/libuv/libuv
