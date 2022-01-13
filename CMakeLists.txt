@@ -13,6 +13,13 @@ message(STATUS "Building with ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -g")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -ggdb -O0 -fno-omit-frame-pointer")
+
+message(STATUS "C flags:         ${CMAKE_C_FLAGS}")
+message(STATUS "C Debug flags:   ${CMAKE_C_FLAGS_DEBUG}")
+message(STATUS "C Release flags: ${CMAKE_C_FLAGS_RELEASE}")
+
 set(TJS__VERSION_MAJOR 19)
 set(TJS__VERSION_MINOR 0)
 set(TJS__VERSION_PATCH 0)
@@ -44,11 +51,8 @@ add_subdirectory(deps/libuv EXCLUDE_FROM_ALL)
 
 cpr_option(DISABLE_WASM "If ON, WASM support will be disabled" OFF)
 if (NOT DISABLE_WASM)
-    option(BUILD_WASI_SUPPORT "" ON)
-    add_subdirectory(deps/wasm3/source EXCLUDE_FROM_ALL)
-    target_compile_definitions(m3 PRIVATE
-        d_m3LogOutput=0
-    )
+    set(BUILD_WASI "simple" CACHE STRING "WASI implementation")
+    add_subdirectory(deps/wasm3 EXCLUDE_FROM_ALL)
 endif()
 
 cpr_option(DISABLE_CURL "If ON, curl support will be disabled" OFF)
