@@ -1,5 +1,5 @@
 /*
- * QuickJS libuv bindings
+ * txiki.js
  *
  * Copyright (c) 2019-present Saúl Ibarra Corretgé <s@saghul.net>
  *
@@ -80,7 +80,7 @@ static JSClassDef tjs_signal_handler_class = {
 static void uv__signal_cb(uv_signal_t *handle, int sig_num) {
     TJSSignalHandler *sh = handle->data;
     CHECK_NOT_NULL(sh);
-    tjs_call_handler(sh->ctx, sh->func);
+    tjs_call_handler(sh->ctx, sh->func, 0, NULL);
 }
 
 static JSValue tjs_signal(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -138,141 +138,38 @@ static JSValue tjs_signal_handler_close(JSContext *ctx, JSValueConst this_val, i
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_signal_handler_signum_get(JSContext *ctx, JSValueConst this_val) {
+static JSValue tjs_signal_handler_signal_get(JSContext *ctx, JSValueConst this_val) {
     TJSSignalHandler *sh = tjs_signal_handler_get(ctx, this_val);
     if (!sh)
         return JS_EXCEPTION;
-    return JS_NewInt32(ctx, sh->sig_num);
+    return sh->sig_num == 0 ? JS_NULL : JS_NewString(ctx, tjs_getsig(sh->sig_num));
 }
 
 static const JSCFunctionListEntry tjs_signal_handler_proto_funcs[] = {
-    JS_CFUNC_DEF("close", 0, tjs_signal_handler_close),
-    JS_CGETSET_DEF("signum", tjs_signal_handler_signum_get, NULL),
+    TJS_CFUNC_DEF("close", 0, tjs_signal_handler_close),
+    JS_CGETSET_DEF("signal", tjs_signal_handler_signal_get, NULL),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Signal Handler", JS_PROP_CONFIGURABLE),
 };
 
 static const JSCFunctionListEntry tjs_signal_funcs[] = {
-#ifdef SIGHUP
-    TJS_CONST(SIGHUP),
-#endif
-#ifdef SIGINT
-    TJS_CONST(SIGINT),
-#endif
-#ifdef SIGQUIT
-    TJS_CONST(SIGQUIT),
-#endif
-#ifdef SIGILL
-    TJS_CONST(SIGILL),
-#endif
-#ifdef SIGTRAP
-    TJS_CONST(SIGTRAP),
-#endif
-#ifdef SIGABRT
-    TJS_CONST(SIGABRT),
-#endif
-#ifdef SIGIOT
-    TJS_CONST(SIGIOT),
-#endif
-#ifdef SIGBUS
-    TJS_CONST(SIGBUS),
-#endif
-#ifdef SIGFPE
-    TJS_CONST(SIGFPE),
-#endif
-#ifdef SIGKILL
-    TJS_CONST(SIGKILL),
-#endif
-#ifdef SIGUSR1
-    TJS_CONST(SIGUSR1),
-#endif
-#ifdef SIGSEGV
-    TJS_CONST(SIGSEGV),
-#endif
-#ifdef SIGUSR2
-    TJS_CONST(SIGUSR2),
-#endif
-#ifdef SIGPIPE
-    TJS_CONST(SIGPIPE),
-#endif
-#ifdef SIGALRM
-    TJS_CONST(SIGALRM),
-#endif
-    TJS_CONST(SIGTERM),
-#ifdef SIGCHLD
-    TJS_CONST(SIGCHLD),
-#endif
-#ifdef SIGSTKFLT
-    TJS_CONST(SIGSTKFLT),
-#endif
-#ifdef SIGCONT
-    TJS_CONST(SIGCONT),
-#endif
-#ifdef SIGSTOP
-    TJS_CONST(SIGSTOP),
-#endif
-#ifdef SIGTSTP
-    TJS_CONST(SIGTSTP),
-#endif
-#ifdef SIGBREAK
-    TJS_CONST(SIGBREAK),
-#endif
-#ifdef SIGTTIN
-    TJS_CONST(SIGTTIN),
-#endif
-#ifdef SIGTTOU
-    TJS_CONST(SIGTTOU),
-#endif
-#ifdef SIGURG
-    TJS_CONST(SIGURG),
-#endif
-#ifdef SIGXCPU
-    TJS_CONST(SIGXCPU),
-#endif
-#ifdef SIGXFSZ
-    TJS_CONST(SIGXFSZ),
-#endif
-#ifdef SIGVTALRM
-    TJS_CONST(SIGVTALRM),
-#endif
-#ifdef SIGPROF
-    TJS_CONST(SIGPROF),
-#endif
-#ifdef SIGWINCH
-    TJS_CONST(SIGWINCH),
-#endif
-#ifdef SIGIO
-    TJS_CONST(SIGIO),
-#endif
-#ifdef SIGPOLL
-    TJS_CONST(SIGPOLL),
-#endif
-#ifdef SIGLOST
-    TJS_CONST(SIGLOST),
-#endif
-#ifdef SIGPWR
-    TJS_CONST(SIGPWR),
-#endif
-#ifdef SIGINFO
-    TJS_CONST(SIGINFO),
-#endif
-#ifdef SIGSYS
-    TJS_CONST(SIGSYS),
-#endif
-#ifdef SIGUNUSED
-    TJS_CONST(SIGUNUSED),
-#endif
-    JS_CFUNC_DEF("signal", 2, tjs_signal),
+    TJS_CFUNC_DEF("signal", 2, tjs_signal),
 };
 
-void tjs_mod_signals_init(JSContext *ctx, JSModuleDef *m) {
+void tjs__mod_signals_init(JSContext *ctx, JSValue ns) {
     JS_NewClassID(&tjs_signal_handler_class_id);
     JS_NewClass(JS_GetRuntime(ctx), tjs_signal_handler_class_id, &tjs_signal_handler_class);
     JSValue proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, tjs_signal_handler_proto_funcs, countof(tjs_signal_handler_proto_funcs));
     JS_SetClassProto(ctx, tjs_signal_handler_class_id, proto);
-    JS_SetModuleExportList(ctx, m, tjs_signal_funcs, countof(tjs_signal_funcs));
-}
 
-void tjs_mod_signals_export(JSContext *ctx, JSModuleDef *m) {
-    JS_AddModuleExportList(ctx, m, tjs_signal_funcs, countof(tjs_signal_funcs));
+    JSValue signals = JS_NewObjectProto(ctx, JS_NULL);
+    for (int i = 0; i < tjs_signal_map_count; i++) {
+        const char *signame = tjs_signal_map[i];
+        if (signame) {
+            JS_SetPropertyStr(ctx, signals, signame, JS_NewInt32(ctx, i));
+        }
+    }
+    JS_SetPropertyStr(ctx, ns, "signals", signals);
+
+    JS_SetPropertyFunctionList(ctx, ns, tjs_signal_funcs, countof(tjs_signal_funcs));
 }

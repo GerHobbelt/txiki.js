@@ -98,9 +98,15 @@ static JSValue tjs_process_kill(JSContext *ctx, JSValueConst this_val, int argc,
     if (!p)
         return JS_EXCEPTION;
 
-    int32_t sig_num = SIGTERM;
-    if (!JS_IsUndefined(argv[0]) && JS_ToInt32(ctx, &sig_num, argv[0]))
-        return JS_EXCEPTION;
+    int sig_num = SIGTERM;
+    if (!JS_IsUndefined(argv[0])) {
+        const char *sig_str = JS_ToCString(ctx, argv[0]);
+        sig_num = tjs_getsignum(sig_str);
+        JS_FreeCString(ctx, sig_str);
+
+        if (sig_num == -1)
+            return JS_ThrowRangeError(ctx, "Invalid signal specified");
+    }
 
     int r = uv_process_kill(&p->process, sig_num);
     if (r != 0)
@@ -117,7 +123,8 @@ static JSValue tjs_process_wait(JSContext *ctx, JSValueConst this_val, int argc,
     if (p->status.exited) {
         JSValue obj = JS_NewObjectProto(ctx, JS_NULL);
         JS_DefinePropertyValueStr(ctx, obj, "exit_status", JS_NewInt32(ctx, p->status.exit_status), JS_PROP_C_W_E);
-        JS_DefinePropertyValueStr(ctx, obj, "term_signal", JS_NewInt32(ctx, p->status.term_signal), JS_PROP_C_W_E);
+        JSValue term_signal = p->status.term_signal == 0 ? JS_NULL : JS_NewString(ctx, tjs_getsig(p->status.term_signal));
+        JS_DefinePropertyValueStr(ctx, obj, "term_signal", term_signal, JS_PROP_C_W_E);
         return TJS_NewResolvedPromise(ctx, 1, &obj);
     } else if (p->closed) {
         return JS_UNDEFINED;
@@ -152,7 +159,8 @@ static void uv__exit_cb(uv_process_t *handle, int64_t exit_status, int term_sign
         JSContext *ctx = p->ctx;
         JSValue arg = JS_NewObjectProto(ctx, JS_NULL);
         JS_DefinePropertyValueStr(ctx, arg, "exit_status", JS_NewInt32(ctx, exit_status), JS_PROP_C_W_E);
-        JS_DefinePropertyValueStr(ctx, arg, "term_signal", JS_NewInt32(ctx, term_signal), JS_PROP_C_W_E);
+        JSValue term_signal = p->status.term_signal == 0 ? JS_NULL : JS_NewString(ctx, tjs_getsig(p->status.term_signal));
+        JS_DefinePropertyValueStr(ctx, arg, "term_signal", term_signal, JS_PROP_C_W_E);
 
         TJS_SettlePromise(ctx, &p->status.result, false, 1, (JSValueConst *) &arg);
         TJS_ClearPromise(ctx, &p->status.result);
@@ -203,7 +211,13 @@ static JSValue tjs_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValu
         options.args = js_mallocz(ctx, sizeof(*options.args) * 2);
         if (!options.args)
             goto fail;
-        options.args[0] = js_strdup(ctx, JS_ToCString(ctx, arg0));
+        const char *arg0_str = JS_ToCString(ctx, arg0);
+        if (!arg0_str)
+            goto fail;
+        options.args[0] = js_strdup(ctx, arg0_str);
+        JS_FreeCString(ctx, arg0_str);
+        if (!options.args[0])
+            goto fail;
     } else if (JS_IsArray(ctx, arg0)) {
         JSValue js_length = JS_GetPropertyStr(ctx, arg0, "length");
         uint64_t len;
@@ -219,7 +233,13 @@ static JSValue tjs_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValu
             JSValue v = JS_GetPropertyUint32(ctx, arg0, i);
             if (JS_IsException(v))
                 goto fail;
-            options.args[i] = js_strdup(ctx, JS_ToCString(ctx, v));
+            const char *arg_str = JS_ToCString(ctx, v);
+            if (!arg_str)
+                goto fail;
+            options.args[i] = js_strdup(ctx, arg_str);
+            JS_FreeCString(ctx, arg_str);
+            if (!options.args[i])
+                goto fail;
         }
     } else {
         JS_ThrowTypeError(ctx, "only string and array are allowed");
@@ -257,7 +277,16 @@ static JSValue tjs_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValu
                 const char *value = JS_ToCString(ctx, prop);
                 size_t len = strlen(key) + strlen(value) + 2; /* KEY=VALUE\0 */
                 options.env[i] = js_malloc(ctx, len);
+                if (!options.env[i]) {
+                    JS_FreeCString(ctx, key);
+                    JS_FreeCString(ctx, value);
+                    JS_FreePropEnum(ctx, ptab, plen);
+                    JS_FreeValue(ctx, js_env);
+                    goto fail;
+                }
                 snprintf(options.env[i], len, "%s=%s", key, value);
+                JS_FreeCString(ctx, key);
+                JS_FreeCString(ctx, value);
             }
             JS_FreePropEnum(ctx, ptab, plen);
         }
@@ -267,8 +296,19 @@ static JSValue tjs_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValu
         JSValue js_cwd = JS_GetPropertyStr(ctx, arg1, "cwd");
         if (JS_IsException(js_cwd))
             goto fail;
-        if (!JS_IsUndefined(js_cwd))
-            options.cwd = js_strdup(ctx, JS_ToCString(ctx, js_cwd));
+        if (!JS_IsUndefined(js_cwd)) {
+            const char *cwd_str = JS_ToCString(ctx, js_cwd);
+            if (!cwd_str) {
+                JS_FreeValue(ctx, js_cwd);
+                goto fail;
+            }
+            options.cwd = js_strdup(ctx, cwd_str);
+            JS_FreeCString(ctx, cwd_str);
+            if (!options.cwd) {
+                JS_FreeValue(ctx, js_cwd);
+                goto fail;
+            }
+        }
         JS_FreeValue(ctx, js_cwd);
 
         /* uid */
@@ -305,6 +345,10 @@ static JSValue tjs_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValu
         JSValue js_stdin = JS_GetPropertyStr(ctx, arg1, "stdin");
         if (!JS_IsException(js_stdin) && !JS_IsUndefined(js_stdin)) {
             const char *in = JS_ToCString(ctx, js_stdin);
+            if (!in) {
+                JS_FreeValue(ctx, js_stdin);
+                goto fail;
+            }
             if (strcmp(in, "inherit") == 0) {
                 stdio[0].flags = UV_INHERIT_FD;
                 stdio[0].data.fd = STDIN_FILENO;
@@ -320,12 +364,17 @@ static JSValue tjs_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValu
             } else if (strcmp(in, "ignore") == 0) {
                 stdio[0].flags = UV_IGNORE;
             }
+            JS_FreeCString(ctx, in);
         }
         JS_FreeValue(ctx, js_stdin);
 
         JSValue js_stdout = JS_GetPropertyStr(ctx, arg1, "stdout");
         if (!JS_IsException(js_stdout) && !JS_IsUndefined(js_stdout)) {
             const char *out = JS_ToCString(ctx, js_stdout);
+            if (!out) {
+                JS_FreeValue(ctx, js_stdout);
+                goto fail;
+            }
             if (strcmp(out, "inherit") == 0) {
                 stdio[1].flags = UV_INHERIT_FD;
                 stdio[1].data.fd = STDOUT_FILENO;
@@ -341,12 +390,17 @@ static JSValue tjs_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValu
             } else if (strcmp(out, "ignore") == 0) {
                 stdio[1].flags = UV_IGNORE;
             }
+            JS_FreeCString(ctx, out);
         }
         JS_FreeValue(ctx, js_stdout);
 
         JSValue js_stderr = JS_GetPropertyStr(ctx, arg1, "stderr");
         if (!JS_IsException(js_stderr) && !JS_IsUndefined(js_stderr)) {
             const char *err = JS_ToCString(ctx, js_stderr);
+            if (!err) {
+                JS_FreeValue(ctx, js_stderr);
+                goto fail;
+            }
             if (strcmp(err, "inherit") == 0) {
                 stdio[2].flags = UV_INHERIT_FD;
                 stdio[2].data.fd = STDERR_FILENO;
@@ -362,6 +416,7 @@ static JSValue tjs_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValu
             } else if (strcmp(err, "ignore") == 0) {
                 stdio[2].flags = UV_IGNORE;
             }
+            JS_FreeCString(ctx, err);
         }
         JS_FreeValue(ctx, js_stderr);
     }
@@ -402,9 +457,93 @@ cleanup:
     return ret;
 }
 
+static JSValue tjs_exec(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    JSValue ret;
+
+    char **args = NULL;
+
+    /* args */
+    JSValue arg0 = argv[0];
+
+    if (JS_IsString(arg0)) {
+        args = js_mallocz(ctx, sizeof(*args) * 2);
+        if (!args)
+            goto fail;
+        const char *arg0_str = JS_ToCString(ctx, arg0);
+        if (!arg0_str)
+            goto fail;
+        args[0] = js_strdup(ctx, arg0_str);
+        JS_FreeCString(ctx, arg0_str);
+        if (!args[0])
+            goto fail;
+    } else if (JS_IsArray(ctx, arg0)) {
+        JSValue js_length = JS_GetPropertyStr(ctx, arg0, "length");
+        uint64_t len;
+        if (JS_ToIndex(ctx, &len, js_length)) {
+            JS_FreeValue(ctx, js_length);
+            goto fail;
+        }
+        JS_FreeValue(ctx, js_length);
+        args = js_mallocz(ctx, sizeof(*args) * (len + 1));
+        if (!args)
+            goto fail;
+        for (int i = 0; i < len; i++) {
+            JSValue v = JS_GetPropertyUint32(ctx, arg0, i);
+            if (JS_IsException(v))
+                goto fail;
+            const char *arg_str = JS_ToCString(ctx, v);
+            if (!arg_str)
+                goto fail;
+            args[i] = js_strdup(ctx, arg_str);
+            JS_FreeCString(ctx, arg_str);
+            if (!args[i])
+                goto fail;
+        }
+    } else {
+        JS_ThrowTypeError(ctx, "only string and array are allowed");
+        goto fail;
+    }
+
+    int r = execvp(args[0], args);
+    tjs_throw_errno(ctx, r);
+
+fail:
+    ret = JS_EXCEPTION;
+
+    if (args) {
+        for (int i = 0; args[i] != NULL; i++)
+            js_free(ctx, args[i]);
+        js_free(ctx, args);
+    }
+
+    return ret;
+}
+
+static JSValue tjs_kill(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    int32_t pid;
+    if (JS_IsUndefined(argv[0]) || JS_ToInt32(ctx, &pid, argv[0]))
+        return JS_ThrowTypeError(ctx, "expected an integer");
+
+    int sig_num = SIGTERM;
+    if (!JS_IsUndefined(argv[1])) {
+        const char *sig_str = JS_ToCString(ctx, argv[1]);
+        sig_num = tjs_getsignum(sig_str);
+        JS_FreeCString(ctx, sig_str);
+
+        if (sig_num == -1)
+            return JS_ThrowRangeError(ctx, "Invalid signal specified");
+    }
+
+    int r = uv_kill(pid, sig_num);
+    if (r != 0)
+        return tjs_throw_errno(ctx, r);
+
+    return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry tjs_process_proto_funcs[] = {
-    JS_CFUNC_DEF("kill", 1, tjs_process_kill),
-    JS_CFUNC_DEF("wait", 0, tjs_process_wait),
+    TJS_CFUNC_DEF("kill", 1, tjs_process_kill),
+    TJS_CFUNC_DEF("wait", 0, tjs_process_wait),
     JS_CGETSET_DEF("pid", tjs_process_pid_get, NULL),
     JS_CGETSET_MAGIC_DEF("stdin", tjs_process_stdio_get, NULL, 0),
     JS_CGETSET_MAGIC_DEF("stdout", tjs_process_stdio_get, NULL, 1),
@@ -413,19 +552,17 @@ static const JSCFunctionListEntry tjs_process_proto_funcs[] = {
 };
 
 static const JSCFunctionListEntry tjs_process_funcs[] = {
-    JS_CFUNC_DEF("spawn", 2, tjs_spawn),
+    TJS_CFUNC_DEF("spawn", 2, tjs_spawn),
+    TJS_CFUNC_DEF("kill", 2, tjs_kill),
+    TJS_CFUNC_DEF("exec", 1, tjs_exec),
 };
 
-void tjs_mod_process_init(JSContext *ctx, JSModuleDef *m) {
+void tjs__mod_process_init(JSContext *ctx, JSValue ns) {
     JS_NewClassID(&tjs_process_class_id);
     JS_NewClass(JS_GetRuntime(ctx), tjs_process_class_id, &tjs_process_class);
     JSValue proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, tjs_process_proto_funcs, countof(tjs_process_proto_funcs));
     JS_SetClassProto(ctx, tjs_process_class_id, proto);
 
-    JS_SetModuleExportList(ctx, m, tjs_process_funcs, countof(tjs_process_funcs));
-}
-
-void tjs_mod_process_export(JSContext *ctx, JSModuleDef *m) {
-    JS_AddModuleExportList(ctx, m, tjs_process_funcs, countof(tjs_process_funcs));
+    JS_SetPropertyFunctionList(ctx, ns, tjs_process_funcs, countof(tjs_process_funcs));
 }

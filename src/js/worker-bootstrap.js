@@ -1,7 +1,4 @@
-
-import { defineEventAttribute } from '@tjs/event-target';
-
-// `workerThis` is a reference to a tjs/core `Worker` objet.
+// `workerThis` is a reference to a in internal `Worker` objet.
 
 const kWorkerSelf = Symbol('kWorkerSelf');
 
@@ -21,6 +18,8 @@ worker.onerror = error => {
 self.postMessage = (...args) => {
     return self[kWorkerSelf].postMessage(...args);
 }
+
+const defineEventAttribute = EventTarget.__defineEventAttribute;
 
 defineEventAttribute(Object.getPrototypeOf(self), 'message');
 defineEventAttribute(Object.getPrototypeOf(self), 'messageerror');

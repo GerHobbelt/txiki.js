@@ -1,7 +1,7 @@
 // Sample TCP echo client.
 //
 
-import { getopts } from '@tjs/getopts';
+import { getopts } from '@tjs/std';
 import { addr } from './utils.js';
 
 
@@ -17,20 +17,18 @@ import { addr } from './utils.js';
         }
     });
 
-    const t = new tjs.TCP();
+    const conn = await tjs.connect('tcp', options.connect, options.port);
     
-    await t.connect({ip: options.connect, port: options.port});
-    
-    console.log(`Connected to ${addr(t.getpeername())}`);
+    console.log(`Connected to ${addr(conn.remoteAddress)}`);
 
-    let data;
+    const buf = new Uint8Array(65536);
     while (true) {
-        data = await t.read();
-        if (!data) {
+        const nread = await conn.read(buf);
+        if (!nread) {
             console.log('connection closed!');
             break;
         }
         //console.log(`Received: ${new TextDecoder().decode(data)}`);
-        t.write(data);
+        await conn.write(buf.subarray(0, nread));
     }
 })();

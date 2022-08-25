@@ -25,8 +25,6 @@
 #include "curl-utils.h"
 
 
-#ifdef TJS_HAVE_CURL
-
 static uv_once_t curl__init_once = UV_ONCE_INIT;
 
 void tjs__curl_init_once(void) {
@@ -66,10 +64,6 @@ int tjs_curl_load_http(DynBuf *dbuf, const char *url) {
 
     /* some servers don't like requests that are made without a user-agent field, so we provide one */
     curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "tjs/1.0");
-
-#if defined(_WIN32)
-    curl_easy_setopt(curl_handle, CURLOPT_CAINFO, "cacert.pem");
-#endif
 
     /* get it! */
     res = curl_easy_perform(curl_handle);
@@ -250,5 +244,3 @@ CURLM *tjs__get_curlm(JSContext *ctx) {
 
     return qrt->curl_ctx.curlm_h;
 }
-
-#endif

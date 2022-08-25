@@ -30,15 +30,11 @@
 #include "tjs.h"
 #include "wasm.h"
 
+#include <curl/curl.h>
 #include <quickjs.h>
 #include <stdbool.h>
 #include <uv.h>
 
-#ifdef TJS_HAVE_CURL
-#include <curl/curl.h>
-#endif
-
-#define kDefaultReadSize 65536
 
 struct TJSRuntime {
     TJSRunOptions options;
@@ -52,49 +48,34 @@ struct TJSRuntime {
     } jobs;
     uv_async_t stop;
     bool is_worker;
-    bool in_bootstrap;
-#ifdef TJS_HAVE_CURL
     struct {
         CURLM *curlm_h;
         uv_timer_t timer;
     } curl_ctx;
-#endif
-#ifdef TJS_HAVE_WASM
     struct {
         IM3Environment env;
     } wasm_ctx;
-#endif
     struct {
+        JSValue date_ctor;
         JSValue u8array_ctor;
     } builtins;
 };
 
-void tjs_mod_dns_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_dns_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_error_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_error_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_fs_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_fs_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_misc_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_misc_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_process_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_process_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_signals_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_signals_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_std_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_std_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_streams_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_streams_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_timers_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_timers_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_udp_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_udp_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_wasm_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_wasm_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_worker_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_worker_export(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_xhr_init(JSContext *ctx, JSModuleDef *m);
-void tjs_mod_xhr_export(JSContext *ctx, JSModuleDef *m);
+void tjs__mod_dns_init(JSContext *ctx, JSValue ns);
+void tjs__mod_error_init(JSContext *ctx, JSValue ns);
+void tjs__mod_fs_init(JSContext *ctx, JSValue ns);
+void tjs__mod_fswatch_init(JSContext *ctx, JSValue ns);
+void tjs__mod_os_init(JSContext *ctx, JSValue ns);
+void tjs__mod_process_init(JSContext *ctx, JSValue ns);
+void tjs__mod_signals_init(JSContext *ctx, JSValue ns);
+void tjs__mod_streams_init(JSContext *ctx, JSValue ns);
+void tjs__mod_sys_init(JSContext *ctx, JSValue ns);
+void tjs__mod_timers_init(JSContext *ctx, JSValue ns);
+void tjs__mod_udp_init(JSContext *ctx, JSValue ns);
+void tjs__mod_wasm_init(JSContext *ctx, JSValue ns);
+void tjs__mod_worker_init(JSContext *ctx, JSValue ns);
+void tjs__mod_xhr_init(JSContext *ctx, JSValue ns);
+void tjs__mod_ffi_init(JSContext *ctx, JSValue ns);
 
 JSValue tjs_new_error(JSContext *ctx, int err);
 JSValue tjs_throw_errno(JSContext *ctx, int err);
@@ -106,16 +87,15 @@ void tjs_execute_jobs(JSContext *ctx);
 
 int tjs__load_file(JSContext *ctx, DynBuf *dbuf, const char *filename);
 JSModuleDef *tjs_module_loader(JSContext *ctx, const char *module_name, void *opaque);
-char *tjs_module_normalizer(JSContext *ctx, const char *base_name, const char *name, void *opaque);
 
 JSModuleDef *js_init_module_std(JSContext *ctx, const char *module_name);
 int js_module_set_import_meta(JSContext *ctx, JSValueConst func_val, JS_BOOL use_realpath, JS_BOOL is_main);
 
 JSValue tjs__get_args(JSContext *ctx);
 
-int tjs__eval_binary(JSContext *ctx, const uint8_t *buf, size_t buf_len);
+int tjs__eval_text(JSContext *ctx, const char *buf, size_t buf_len, const char *filename);
 void tjs__bootstrap_globals(JSContext *ctx);
-void tjs__add_builtins(JSContext *ctx);
+void tjs__add_stdlib(JSContext *ctx);
 
 uv_loop_t *TJS_GetLoop(TJSRuntime *qrt);
 TJSRuntime *TJS_NewRuntimeWorker(void);

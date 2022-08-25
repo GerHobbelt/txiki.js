@@ -22,14 +22,22 @@
  * THE SOFTWARE.
  */
 
+#include "embedjs.h"
 #include "private.h"
 #include "tjs.h"
 
 #include <unistd.h>
 
+INCTXT(worker_bootstrap, "worker-bootstrap.js");
 
-extern const uint8_t worker_bootstrap[];
-extern const uint32_t worker_bootstrap_size;
+/**
+ * These are defined now:
+ *
+ * const unsigned char tjs__code_worker_bootstrap_data[];
+ * const unsigned char *const tjs__code_worker_bootstrap_end;
+ * const unsigned int tjs__code_worker_bootstrap_size;
+ *
+ */
 
 enum {
     WORKER_EVENT_MESSAGE = 0,
@@ -54,11 +62,7 @@ typedef struct {
     union {
         uv_handle_t handle;
         uv_stream_t stream;
-#if defined(_WIN32)
         uv_tcp_t tcp;
-#else
-        uv_pipe_t pipe;
-#endif
     } h;
     JSValue events[WORKER_EVENT_MAX];
     uv_thread_t tid;
@@ -81,7 +85,7 @@ static JSValue worker_eval(JSContext *ctx, int argc, JSValueConst *argv) {
         goto error;
     }
 
-    ret = TJS_EvalFile(ctx, filename, JS_EVAL_TYPE_MODULE, false, NULL);
+    ret = TJS_EvalModule(ctx, filename, false);
     JS_FreeCString(ctx, filename);
 
     if (JS_IsException(ret)) {
@@ -109,18 +113,12 @@ static void worker_entry(void *arg) {
     CHECK_NOT_NULL(wrt);
     JSContext *ctx = TJS_GetJSContext(wrt);
 
-    /* Start the worker bootstrap. */
-    wrt->in_bootstrap = true;
-
     /* Bootstrap the worker scope. */
     JSValue global_obj = JS_GetGlobalObject(ctx);
     JSValue worker_obj = tjs_new_worker(ctx, wd->channel_fd, false);
-    JS_SetPropertyStr(ctx, global_obj, "workerThis", worker_obj);
+    JS_DefinePropertyValueStr(ctx, global_obj, "workerThis", worker_obj, JS_PROP_C_W_E);
     JS_FreeValue(ctx, global_obj);
-    CHECK_EQ(0, tjs__eval_binary(ctx, worker_bootstrap, worker_bootstrap_size));
-
-    /* End the worker bootstrap. */
-    wrt->in_bootstrap = false;
+    CHECK_EQ(0, tjs__eval_text(ctx, tjs__code_worker_bootstrap_data, tjs__code_worker_bootstrap_size, "worker-bootstrap.js"));
 
     /* Load the file and eval the file when the loop runs. */
     JSValue filename = JS_NewString(ctx, wd->path);
@@ -246,13 +244,8 @@ static JSValue tjs_new_worker(JSContext *ctx, uv_os_sock_t channel_fd, bool is_m
     w->is_main = is_main;
     w->h.handle.data = w;
 
-#if defined(_WIN32)
     CHECK_EQ(uv_tcp_init(tjs_get_loop(ctx), &w->h.tcp), 0);
     CHECK_EQ(uv_tcp_open(&w->h.tcp, channel_fd), 0);
-#else
-    CHECK_EQ(uv_pipe_init(tjs_get_loop(ctx), &w->h.pipe, 0), 0);
-    CHECK_EQ(uv_pipe_open(&w->h.pipe, channel_fd), 0);
-#endif
     CHECK_EQ(uv_read_start(&w->h.stream, uv__alloc_cb, uv__read_cb), 0);
 
     w->events[0] = JS_UNDEFINED;
@@ -263,64 +256,13 @@ static JSValue tjs_new_worker(JSContext *ctx, uv_os_sock_t channel_fd, bool is_m
     return obj;
 }
 
-static int tjs__worker_channel(uv_os_sock_t fds[2]) {
-#if defined(_WIN32)
-    union {
-        struct sockaddr_in inaddr;
-        struct sockaddr addr;
-    } a;
-    socklen_t addrlen = sizeof(a.inaddr);
-    SOCKET listener;
-
-    listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (listener == INVALID_SOCKET)
-        return -1;
-
-    memset(&a, 0, sizeof(a));
-    a.inaddr.sin_family = AF_INET;
-    a.inaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    a.inaddr.sin_port = 0;
-
-    fds[0] = fds[1] = INVALID_SOCKET;
-
-    if (bind(listener, &a.addr, sizeof(a.inaddr)) == SOCKET_ERROR)
-        goto error;
-    if (getsockname(listener, &a.addr, &addrlen) == SOCKET_ERROR)
-        goto error;
-    if (listen(listener, 1) == SOCKET_ERROR)
-        goto error;
-
-    fds[0] = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
-    if (fds[0] == INVALID_SOCKET)
-        goto error;
-    if (connect(fds[0], &a.addr, sizeof(a.inaddr)) == SOCKET_ERROR)
-        goto error;
-    fds[1] = accept(listener, NULL, NULL);
-    if (fds[1] == INVALID_SOCKET)
-        goto error;
-
-    closesocket(listener);
-    return 0;
-
-error:
-    closesocket(listener);
-    closesocket(fds[0]);
-    closesocket(fds[1]);
-    return -1;
-#else
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0)
-        return -errno;
-    return 0;
-#endif
-}
-
 static JSValue tjs_worker_constructor(JSContext *ctx, JSValueConst new_target, int argc, JSValueConst *argv) {
     const char *path = JS_ToCString(ctx, argv[0]);
     if (!path)
         return JS_EXCEPTION;
 
     uv_os_sock_t fds[2];
-    int r = tjs__worker_channel(fds);
+    int r = uv_socketpair(SOCK_STREAM, 0, fds, UV_NONBLOCK_PIPE, UV_NONBLOCK_PIPE);
     if (r != 0) {
         JS_FreeCString(ctx, path);
         return tjs_throw_errno(ctx, r);
@@ -440,15 +382,15 @@ static JSValue tjs_worker_event_set(JSContext *ctx, JSValueConst this_val, JSVal
 }
 
 static const JSCFunctionListEntry tjs_worker_proto_funcs[] = {
-    JS_CFUNC_DEF("postMessage", 1, tjs_worker_postmessage),
-    JS_CFUNC_DEF("terminate", 0, tjs_worker_terminate),
+    TJS_CFUNC_DEF("postMessage", 1, tjs_worker_postmessage),
+    TJS_CFUNC_DEF("terminate", 0, tjs_worker_terminate),
     JS_CGETSET_MAGIC_DEF("onmessage", tjs_worker_event_get, tjs_worker_event_set, WORKER_EVENT_MESSAGE),
     JS_CGETSET_MAGIC_DEF("onmessageerror", tjs_worker_event_get, tjs_worker_event_set, WORKER_EVENT_MESSAGE_ERROR),
     JS_CGETSET_MAGIC_DEF("onerror", tjs_worker_event_get, tjs_worker_event_set, WORKER_EVENT_ERROR),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Worker", JS_PROP_CONFIGURABLE),
 };
 
-void tjs_mod_worker_init(JSContext *ctx, JSModuleDef *m) {
+void tjs__mod_worker_init(JSContext *ctx, JSValue ns) {
     JSValue proto, obj;
 
     /* Worker class */
@@ -460,9 +402,5 @@ void tjs_mod_worker_init(JSContext *ctx, JSModuleDef *m) {
 
     /* Worker object */
     obj = JS_NewCFunction2(ctx, tjs_worker_constructor, "Worker", 1, JS_CFUNC_constructor, 0);
-    JS_SetModuleExport(ctx, m, "Worker", obj);
-}
-
-void tjs_mod_worker_export(JSContext *ctx, JSModuleDef *m) {
-    JS_AddModuleExport(ctx, m, "Worker");
+    JS_DefinePropertyValueStr(ctx, ns, "Worker", obj, JS_PROP_C_W_E);
 }

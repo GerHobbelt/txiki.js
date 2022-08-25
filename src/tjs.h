@@ -34,7 +34,7 @@
 typedef struct TJSRuntime TJSRuntime;
 
 typedef struct TJSRunOptions {
-    bool no_abort_on_unhandled_rejection;
+    size_t mem_limit;
     size_t stack_size;
 } TJSRunOptions;
 
@@ -45,9 +45,9 @@ void TJS_FreeRuntime(TJSRuntime *qrt);
 void TJS_SetupArgs(int argc, char **argv);
 JSContext *TJS_GetJSContext(TJSRuntime *qrt);
 TJSRuntime *TJS_GetRuntime(JSContext *ctx);
-void TJS_Run(TJSRuntime *qrt);
+int TJS_Run(TJSRuntime *qrt);
 void TJS_Stop(TJSRuntime *qrt);
-JSValue TJS_EvalFile(JSContext *ctx, const char *filename, int eval_flags, bool is_main, char *override_filename);
-void TJS_RunRepl(JSContext *ctx);
+JSValue TJS_EvalModule(JSContext *ctx, const char *filename, bool is_main);
+int TJS_RunMain(TJSRuntime *qrt, const char *filename);
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * QuickJS + libuv stand alone interpreter
+ * txiki.js
  *
  * Copyright (c) 2019-present Saúl Ibarra Corretgé
  * Copyright (c) 2017-2018 Fabrice Bellard
@@ -47,18 +47,8 @@ typedef struct CLIOption {
     size_t length;
 } CLIOption;
 
-typedef struct FileItem {
-    struct list_head link;
-    char *path;
-} FileItem;
-
 typedef struct Flags {
-    bool interactive;
-    bool empty_run;
-    bool strict_module_detection;
-    struct list_head preload_modules;
     char *eval_expr;
-    char *override_filename;
 } Flags;
 
 static int eprintf(const char *format, ...) {
@@ -70,36 +60,10 @@ static int eprintf(const char *format, ...) {
     return ret;
 }
 
-static int get_eval_flags(const char *filepath, bool strict_module_detection) {
-    int is_mjs = has_suffix(filepath, ".mjs");
-
-    if (strict_module_detection)
-        return is_mjs ? JS_EVAL_TYPE_MODULE : JS_EVAL_TYPE_GLOBAL;
-
-    if (is_mjs)
-        return JS_EVAL_TYPE_MODULE;
-
-    return -1 /* autodetect */;
-}
-
-static int eval_buf(JSContext *ctx, const char *buf, const char *filename, int eval_flags) {
-    JSValue val;
+static int eval_expr(JSContext *ctx, const char *buf) {
     int ret = 0;
+    JSValue val = JS_Eval(ctx, buf, strlen(buf), "<cmdline>", JS_EVAL_TYPE_GLOBAL);
 
-    val = JS_Eval(ctx, buf, strlen(buf), filename, eval_flags);
-    if (JS_IsException(val)) {
-        tjs_dump_error(ctx);
-        ret = -1;
-    }
-    JS_FreeValue(ctx, val);
-    return ret;
-}
-
-static int eval_module(JSContext *ctx, const char *filepath, char *override_filename, int eval_flags) {
-    JSValue val;
-    int ret = 0;
-
-    val = TJS_EvalFile(ctx, filepath, eval_flags, true, override_filename);
     if (JS_IsException(val)) {
         tjs_dump_error(ctx);
         ret = -1;
@@ -115,13 +79,8 @@ static void print_help(void) {
            "  -v, --version                   print tjs version\n"
            "  -h, --help                      list options\n"
            "  -e, --eval EXPR                 evaluate EXPR\n"
-           "  -l, --load FILENAME             module to preload (option can be repeated)\n"
-           "  -i, --interactive               go to interactive mode\n"
-           "  -q, --quit                      just instantiate the interpreter and quit\n"
-           "  --abort-on-unhandled-rejection  abort when a rejected promise is not caught\n"
-           "  --override-filename FILENAME    override filename in error messages\n"
-           "  --stack-size STACKSIZE          set max stack size\n"
-           "  --strict-module-detection       only run code as a module if its extension is \".mjs\"\n");
+           "  --memory-limit LIMIT            set the memory limit\n"
+           "  --stack-size STACKSIZE          set max stack size\n");
 }
 
 static void print_version() {
@@ -193,12 +152,7 @@ int main(int argc, char **argv) {
 
     TJS_DefaultOptions(&runOptions);
 
-    Flags flags = { .interactive = false,
-                    .empty_run = false,
-                    .strict_module_detection = false,
-                    .eval_expr = NULL,
-                    .override_filename = NULL,
-                    .preload_modules = LIST_HEAD_INIT(flags.preload_modules) };
+    Flags flags = { .eval_expr = NULL };
 
     TJS_SetupArgs(argc, argv);
 
@@ -233,27 +187,15 @@ int main(int argc, char **argv) {
                 exit_code = EXIT_INVALID_ARG;
                 goto exit;
             }
-            if (opt.key == 'l' || is_longopt(opt, "load")) {
-                char *filepath = get_option_value(arg, argc, argv, &optind);
-                if (!filepath) {
-                    report_missing_argument(&opt);
-                    exit_code = EXIT_INVALID_ARG;
-                    goto exit;
+            if (is_longopt(opt, "memory-limit")) {
+                char *mem_limit = get_option_value(arg, argc, argv, &optind);
+                if (mem_limit) {
+                    long n = strtol(mem_limit, NULL, 10);
+                    if (n > 0) {
+                        runOptions.mem_limit = (size_t) n;
+                        break;
+                    }
                 }
-                FileItem *file = malloc(sizeof(*file));
-                if (!file) {
-                    eprintf("could not allocate memory\n");
-                    exit_code = EXIT_FAILURE;
-                    goto exit;
-                }
-                file->path = filepath;
-                list_add_tail(&file->link, &flags.preload_modules);
-                break;
-            }
-            if (is_longopt(opt, "override-filename")) {
-                flags.override_filename = get_option_value(arg, argc, argv, &optind);
-                if (flags.override_filename)
-                    break;
                 report_missing_argument(&opt);
                 exit_code = EXIT_INVALID_ARG;
                 goto exit;
@@ -271,22 +213,6 @@ int main(int argc, char **argv) {
                 exit_code = EXIT_INVALID_ARG;
                 goto exit;
             }
-            if (opt.key == 'i' || is_longopt(opt, "interactive")) {
-                flags.interactive = true;
-                break;
-            }
-            if (opt.key == 'q' || is_longopt(opt, "quit")) {
-                flags.empty_run = true;
-                break;
-            }
-            if (is_longopt(opt, "strict-module-detection")) {
-                flags.strict_module_detection = true;
-                break;
-            }
-            if (is_longopt(opt, "no-abort-on-unhandled-rejection")) {
-                runOptions.no_abort_on_unhandled_rejection = true;
-                break;
-            }
             report_unknown_option(&opt);
             exit_code = EXIT_INVALID_ARG;
             goto exit;
@@ -296,50 +222,28 @@ int main(int argc, char **argv) {
     qrt = TJS_NewRuntimeOptions(&runOptions);
     ctx = TJS_GetJSContext(qrt);
 
-    if (flags.empty_run)
-        goto exit;
-
-    /* preload modules specified using `-l, --load FILENAME` */
-    struct list_head *el = NULL;
-    struct list_head *el1 = NULL;
-    list_for_each(el, &flags.preload_modules) {
-        FileItem *file = list_entry(el, FileItem, link);
-        int eval_flags = get_eval_flags(file->path, flags.strict_module_detection);
-        if (eval_module(ctx, file->path, NULL, eval_flags)) {
-            exit_code = EXIT_FAILURE;
-            goto exit;
-        }
-    }
-
     if (flags.eval_expr) {
-        if (eval_buf(ctx, flags.eval_expr, "<cmdline>", JS_EVAL_TYPE_GLOBAL)) {
+        if (eval_expr(ctx, flags.eval_expr)) {
             exit_code = EXIT_FAILURE;
             goto exit;
         }
-    } else if (optind >= argc) {
-        /* interactive mode */
-        flags.interactive = true;
     } else {
-        const char *filepath = argv[optind];
-        int eval_flags = get_eval_flags(filepath, flags.strict_module_detection);
-        if (eval_module(ctx, filepath, flags.override_filename, eval_flags)) {
+        const char *filepath = NULL;
+        if (optind < argc) {
+            filepath = argv[optind];
+        }
+
+        if (TJS_RunMain(qrt, filepath)) {
             exit_code = EXIT_FAILURE;
             goto exit;
         }
     }
 
-    if (flags.interactive) {
-        TJS_RunRepl(ctx);
-    }
-    TJS_Run(qrt);
+    exit_code = TJS_Run(qrt);
 
 exit:
-    list_for_each_safe(el, el1, &flags.preload_modules) {
-        FileItem *file = list_entry(el, FileItem, link);
-        list_del(&file->link);
-        free(file);
-    }
-    if (qrt) {
+    if (qrt && exit_code == 0) {
+        // TODO: maybe mark the runtime as aborted and skip some steps?
         TJS_FreeRuntime(qrt);
     }
     return exit_code;

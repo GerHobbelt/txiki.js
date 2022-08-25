@@ -28,8 +28,6 @@
 #include <ctype.h>
 #include <string.h>
 
-#ifdef TJS_HAVE_CURL
-
 
 enum {
     XHR_EVENT_ABORT = 0,
@@ -107,7 +105,8 @@ static void tjs_xhr_finalizer(JSRuntime *rt, JSValue val) {
         JS_FreeValueRT(rt, x->result.headers);
         JS_FreeValueRT(rt, x->result.response);
         JS_FreeValueRT(rt, x->result.response_text);
-
+        dbuf_free(&x->result.hbuf);
+        dbuf_free(&x->result.bbuf);
         free(x);
     }
 }
@@ -343,9 +342,6 @@ static JSValue tjs_xhr_constructor(JSContext *ctx, JSValueConst new_target, int 
     curl_easy_setopt(x->curl_h, CURLOPT_WRITEDATA, x);
     curl_easy_setopt(x->curl_h, CURLOPT_HEADERFUNCTION, curl__header_cb);
     curl_easy_setopt(x->curl_h, CURLOPT_HEADERDATA, x);
-#if defined(_WIN32)
-    curl_easy_setopt(x->curl_h, CURLOPT_CAINFO, "cacert.pem");
-#endif
 
     JS_SetOpaque(obj, x);
     return obj;
@@ -758,17 +754,17 @@ static const JSCFunctionListEntry tjs_xhr_proto_funcs[] = {
     JS_CGETSET_DEF("statusText", tjs_xhr_statustext_get, NULL),
     JS_CGETSET_DEF("timeout", tjs_xhr_timeout_get, tjs_xhr_timeout_set),
     JS_CGETSET_DEF("upload", tjs_xhr_upload_get, NULL),
-    JS_CGETSET_DEF("withCcredentials", tjs_xhr_withcredentials_get, tjs_xhr_withcredentials_set),
-    JS_CFUNC_DEF("abort", 0, tjs_xhr_abort),
-    JS_CFUNC_DEF("getAllResponseHeaders", 0, tjs_xhr_getallresponseheaders),
-    JS_CFUNC_DEF("getResponseHeader", 1, tjs_xhr_getresponseheader),
-    JS_CFUNC_DEF("open", 5, tjs_xhr_open),
-    JS_CFUNC_DEF("overrideMimeType", 1, tjs_xhr_overridemimetype),
-    JS_CFUNC_DEF("send", 1, tjs_xhr_send),
-    JS_CFUNC_DEF("setRequestHeader", 2, tjs_xhr_setrequestheader),
+    JS_CGETSET_DEF("withCredentials", tjs_xhr_withcredentials_get, tjs_xhr_withcredentials_set),
+    TJS_CFUNC_DEF("abort", 0, tjs_xhr_abort),
+    TJS_CFUNC_DEF("getAllResponseHeaders", 0, tjs_xhr_getallresponseheaders),
+    TJS_CFUNC_DEF("getResponseHeader", 1, tjs_xhr_getresponseheader),
+    TJS_CFUNC_DEF("open", 5, tjs_xhr_open),
+    TJS_CFUNC_DEF("overrideMimeType", 1, tjs_xhr_overridemimetype),
+    TJS_CFUNC_DEF("send", 1, tjs_xhr_send),
+    TJS_CFUNC_DEF("setRequestHeader", 2, tjs_xhr_setrequestheader),
 };
 
-void tjs_mod_xhr_init(JSContext *ctx, JSModuleDef *m) {
+void tjs__mod_xhr_init(JSContext *ctx,JSValue ns) {
     JSValue proto, obj;
 
     /* XHR class */
@@ -781,11 +777,5 @@ void tjs_mod_xhr_init(JSContext *ctx, JSModuleDef *m) {
     /* XHR object */
     obj = JS_NewCFunction2(ctx, tjs_xhr_constructor, "XMLHttpRequest", 1, JS_CFUNC_constructor, 0);
     JS_SetPropertyFunctionList(ctx, obj, tjs_xhr_class_funcs, countof(tjs_xhr_class_funcs));
-    JS_SetModuleExport(ctx, m, "XMLHttpRequest", obj);
+    JS_DefinePropertyValueStr(ctx, ns, "XMLHttpRequest", obj, JS_PROP_C_W_E);
 }
-
-void tjs_mod_xhr_export(JSContext *ctx, JSModuleDef *m) {
-    JS_AddModuleExport(ctx, m, "XMLHttpRequest");
-}
-
-#endif

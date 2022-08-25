@@ -54,8 +54,9 @@ int tjs_obj2addr(JSContext *ctx, JSValueConst obj, struct sockaddr_storage *ss) 
     JSValue js_ip;
     JSValue js_port;
     const char *ip;
-    uint32_t port;
+    uint32_t port = 0;
     int r;
+    int ret = 0;
 
     js_ip = JS_GetPropertyStr(ctx, obj, "ip");
     ip = JS_ToCString(ctx, js_ip);
@@ -68,7 +69,8 @@ int tjs_obj2addr(JSContext *ctx, JSValueConst obj, struct sockaddr_storage *ss) 
     r = JS_ToUint32(ctx, &port, js_port);
     JS_FreeValue(ctx, js_port);
     if (r != 0) {
-        return -1;
+        ret = -1;
+        goto end;
     }
 
     memset(ss, 0, sizeof(*ss));
@@ -81,36 +83,33 @@ int tjs_obj2addr(JSContext *ctx, JSValueConst obj, struct sockaddr_storage *ss) 
         ((struct sockaddr_in6 *) ss)->sin6_port = htons(port);
     } else {
         tjs_throw_errno(ctx, UV_EAFNOSUPPORT);
-        JS_FreeCString(ctx, ip);
-        return -1;
+        ret = -1;
     }
 
+end:
     JS_FreeCString(ctx, ip);
-    return 0;
+    return ret;
 }
 
-JSValue tjs_addr2obj(JSContext *ctx, const struct sockaddr *sa) {
+void tjs_addr2obj(JSContext *ctx, JSValue obj, const struct sockaddr *sa) {
     char buf[INET6_ADDRSTRLEN + 1];
-    JSValue obj;
 
     switch (sa->sa_family) {
         case AF_INET: {
             struct sockaddr_in *addr4 = (struct sockaddr_in *) sa;
             uv_ip4_name(addr4, buf, sizeof(buf));
 
-            obj = JS_NewObjectProto(ctx, JS_NULL);
             JS_DefinePropertyValueStr(ctx, obj, "family", JS_NewInt32(ctx, AF_INET), JS_PROP_C_W_E);
             JS_DefinePropertyValueStr(ctx, obj, "ip", JS_NewString(ctx, buf), JS_PROP_C_W_E);
             JS_DefinePropertyValueStr(ctx, obj, "port", JS_NewInt32(ctx, ntohs(addr4->sin_port)), JS_PROP_C_W_E);
 
-            return obj;
+            break;
         }
 
         case AF_INET6: {
             struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *) sa;
             uv_ip6_name(addr6, buf, sizeof(buf));
 
-            obj = JS_NewObjectProto(ctx, JS_NULL);
             JS_DefinePropertyValueStr(ctx, obj, "family", JS_NewInt32(ctx, AF_INET6), JS_PROP_C_W_E);
             JS_DefinePropertyValueStr(ctx, obj, "ip", JS_NewString(ctx, buf), JS_PROP_C_W_E);
             JS_DefinePropertyValueStr(ctx, obj, "port", JS_NewInt32(ctx, ntohs(addr6->sin6_port)), JS_PROP_C_W_E);
@@ -121,12 +120,8 @@ JSValue tjs_addr2obj(JSContext *ctx, const struct sockaddr *sa) {
                                       JS_PROP_C_W_E);
             JS_DefinePropertyValueStr(ctx, obj, "scopeId", JS_NewInt32(ctx, addr6->sin6_scope_id), JS_PROP_C_W_E);
 
-            return obj;
+            break;
         }
-
-        default:
-            /* If we don't know the address family, don't raise an exception -- return undefined. */
-            return JS_UNDEFINED;
     }
 }
 
@@ -157,12 +152,12 @@ void tjs_dump_error1(JSContext *ctx, JSValueConst exception_val) {
     }
 }
 
-void tjs_call_handler(JSContext *ctx, JSValueConst func) {
+void tjs_call_handler(JSContext *ctx, JSValueConst func, int argc, JSValue *argv) {
     JSValue ret, func1;
     /* 'func' might be destroyed when calling itself (if it frees the
        handler), so must take extra care */
     func1 = JS_DupValue(ctx, func);
-    ret = JS_Call(ctx, func1, JS_UNDEFINED, 0, NULL);
+    ret = JS_Call(ctx, func1, JS_UNDEFINED, argc, argv);
     JS_FreeValue(ctx, func1);
     if (JS_IsException(ret))
         tjs_dump_error(ctx);
@@ -273,4 +268,137 @@ JSValue TJS_NewUint8Array(JSContext *ctx, uint8_t *data, size_t size) {
     JSValue buf = JS_CallConstructor(ctx, qrt->builtins.u8array_ctor, 1, &abuf);
     JS_FreeValue(ctx, abuf);
     return buf;
+}
+
+JSValue TJS_NewDate(JSContext *ctx, double epoch_ms) {
+    TJSRuntime *qrt = TJS_GetRuntime(ctx);
+    CHECK_NOT_NULL(qrt);
+    JSValue data = JS_NewFloat64(ctx, epoch_ms);
+    JSValue d = JS_CallConstructor(ctx, qrt->builtins.date_ctor, 1, &data);
+    JS_FreeValue(ctx, data);
+    return d;
+}
+
+const char *tjs_signal_map[] = {
+#ifdef SIGHUP
+    [SIGHUP] = "SIGHUP",
+#endif
+#ifdef SIGINT
+    [SIGINT] = "SIGINT",
+#endif
+#ifdef SIGQUIT
+    [SIGQUIT] = "SIGQUIT",
+#endif
+#ifdef SIGILL
+    [SIGILL] = "SIGILL",
+#endif
+#ifdef SIGTRAP
+    [SIGTRAP] = "SIGTRAP",
+#endif
+#ifdef SIGABRT
+    [SIGABRT] = "SIGABRT",
+#endif
+#ifdef SIGBUS
+    [SIGBUS] = "SIGBUS",
+#endif
+#ifdef SIGFPE
+    [SIGFPE] = "SIGFPE",
+#endif
+#ifdef SIGKILL
+    [SIGKILL] = "SIGKILL",
+#endif
+#ifdef SIGUSR1
+    [SIGUSR1] = "SIGUSR1",
+#endif
+#ifdef SIGSEGV
+    [SIGSEGV] = "SIGSEGV",
+#endif
+#ifdef SIGUSR2
+    [SIGUSR2] = "SIGUSR2",
+#endif
+#ifdef SIGPIPE
+    [SIGPIPE] = "SIGPIPE",
+#endif
+#ifdef SIGALRM
+    [SIGALRM] = "SIGALRM",
+#endif
+#ifdef SIGTERM
+    [SIGTERM] = "SIGTERM",
+#endif
+#ifdef SIGSTKFLT
+    [SIGSTKFLT] = "SIGSTKFLT",
+#endif
+#ifdef SIGCHLD
+    [SIGCHLD] = "SIGCHLD",
+#endif
+#ifdef SIGCONT
+    [SIGCONT] = "SIGCONT",
+#endif
+#ifdef SIGSTOP
+    [SIGSTOP] = "SIGSTOP",
+#endif
+#ifdef SIGTSTP
+    [SIGTSTP] = "SIGTSTP",
+#endif
+#ifdef SIGBREAK
+    [SIGBREAK] = "SIGBREAK",
+#endif
+#ifdef SIGTTIN
+    [SIGTTIN] = "SIGTTIN",
+#endif
+#ifdef SIGTTOU
+    [SIGTTOU] = "SIGTTOU",
+#endif
+#ifdef SIGURG
+    [SIGURG] = "SIGURG",
+#endif
+#ifdef SIGXCPU
+    [SIGXCPU] = "SIGXCPU",
+#endif
+#ifdef SIGXFSZ
+    [SIGXFSZ] = "SIGXFSZ",
+#endif
+#ifdef SIGVTALRM
+    [SIGVTALRM] = "SIGVTALRM",
+#endif
+#ifdef SIGPROF
+    [SIGPROF] = "SIGPROF",
+#endif
+#ifdef SIGWINCH
+    [SIGWINCH] = "SIGWINCH",
+#endif
+#ifdef SIGPOLL
+    [SIGPOLL] = "SIGPOLL",
+#endif
+#ifdef SIGLOST
+    [SIGLOST] = "SIGLOST",
+#endif
+#ifdef SIGPWR
+    [SIGPWR] = "SIGPWR",
+#endif
+#ifdef SIGINFO
+    [SIGINFO] = "SIGINFO",
+#endif
+#ifdef SIGSYS
+    [SIGSYS] = "SIGSYS",
+#endif
+};
+
+size_t tjs_signal_map_count = ARRAY_SIZE(tjs_signal_map);
+
+const char *tjs_getsig(int sig) {
+    if (sig < 0 || sig >= tjs_signal_map_count || !tjs_signal_map[sig])
+        return NULL;
+
+    return tjs_signal_map[sig];
+}
+
+int tjs_getsignum(const char *sig_str) {
+    for (int i = 0; i < tjs_signal_map_count; i++) {
+        const char *s = tjs_signal_map[i];
+        if (s && strcmp(sig_str, s) == 0)
+            return i;
+    }
+
+    return -1;
 }

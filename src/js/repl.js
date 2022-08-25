@@ -23,15 +23,16 @@
  * THE SOFTWARE.
  */
 
-import * as hashlib from "@tjs/hashlib";
-import * as path from "@tjs/path";
-import * as uuid from "@tjs/uuid";
+import * as std from '@tjs/std';
+
+window.addEventListener('unhandledrejection', event => {
+    // Avoid aborting in unhandled promised on the REPL.
+    event.preventDefault();
+});
 
 (function(g) {
-    /* expose builtins */
-    g.hashlib = hashlib;
-    g.path = path;
-    g.uuid = uuid;
+    /* expose stdlib */
+    g.std = std;
 
     /* close global objects */
     var Object = g.Object;
@@ -103,37 +104,36 @@ import * as uuid from "@tjs/uuid";
     var utf8_state = 0;
     var utf8_val = 0;
 
-    var stdin;
-    var stdout;
     var term_width;
     /* current X position of the cursor in the terminal */
     var term_cursor_x = 0; 
 
     var sigint_h;
 
+    var encoder = new TextEncoder();
+
+    function stdout_write(data) {
+        tjs.stdout.write(encoder.encode(data));
+    }
+
     function termInit() {
-        if (!tjs.isatty(tjs.STDIN_FILENO))
+        if (!tjs.stdin.isTTY)
             throw new Error('stdin is not a TTY');
 
-        stdin = new tjs.TTY(tjs.STDIN_FILENO, true);
-        stdout = new tjs.TTY(tjs.STDOUT_FILENO, false);
-        
         /* get the terminal size */
-        var size = stdout.getWinSize();
-        term_width = size.width;
+        term_width = tjs.stdout.width;
 
         /* set the TTY to raw mode */
-        stdin.setMode(tjs.TTY.MODE_RAW);
+        tjs.stdin.setRawMode(true);
 
         /* install a Ctrl-C signal handler */
-        sigint_h = tjs.signal(tjs.signal.SIGINT, sigint_handler);
+        sigint_h = tjs.signal('SIGINT', sigint_handler);
 
         /* handler to read stdin */
         term_read_handler();
     }
 
     function exit(code) {
-        stdin.setMode(tjs.TTY.MODE_NORMAL);
         tjs.exit(code);
     }
 
@@ -143,11 +143,16 @@ import * as uuid from "@tjs/uuid";
     }
 
     async function term_read_handler() {
-        var buf;
+        var buf = new Uint8Array(4096);
+        var nread;
         while (true) {
-            buf = await stdin.read(4096);
-            for(var i = 0; i < buf.length; i++)
-                handle_byte(buf[i]);
+            try {
+                nread = await tjs.stdin.read(buf);
+                for(var i = 0; i < nread; i++)
+                    handle_byte(buf[i]);
+            } catch (error) {
+                dump_error(error);
+            }
         }
     }
     
@@ -199,14 +204,14 @@ import * as uuid from "@tjs/uuid";
             var style = style_names[i = j];
             while (++j < str.length && style_names[j] == style)
                 continue;
-            stdout.write(colors[styles[style] || 'default']);
-            stdout.write(str.substring(i, j));
-            stdout.write(colors['none']);
+            stdout_write(colors[styles[style] || 'default']);
+            stdout_write(str.substring(i, j));
+            stdout_write(colors['none']);
         }
     }
 
     function print_csi(n, code) {
-        stdout.write("\x1b[" + ((n != 1) ? n : "") + code);
+        stdout_write("\x1b[" + ((n != 1) ? n : "") + code);
     }
 
     function move_cursor(delta) {
@@ -214,7 +219,7 @@ import * as uuid from "@tjs/uuid";
         if (delta > 0) {
             while (delta != 0) {
                 if (term_cursor_x == (term_width - 1)) {
-                    stdout.write("\n"); /* translated to CRLF */
+                    stdout_write("\n"); /* translated to CRLF */
                     term_cursor_x = 0;
                     delta--;
                 } else {
@@ -248,7 +253,7 @@ import * as uuid from "@tjs/uuid";
         if (cmd != last_cmd) {
             if (!show_colors && last_cmd.substring(0, last_cursor_pos) == cmd.substring(0, last_cursor_pos)) {
                 /* optimize common case */
-                stdout.write(cmd.substring(last_cursor_pos));
+                stdout_write(cmd.substring(last_cursor_pos));
             } else {
                 /* goto the start of the line */
                 move_cursor(-last_cursor_pos);
@@ -258,17 +263,17 @@ import * as uuid from "@tjs/uuid";
                     var colorstate = colorize_js(str);
                     print_color_text(str, start, colorstate[2]);
                 } else {
-                    stdout.write(cmd);
+                    stdout_write(cmd);
                 }
             }
             /* Note: assuming no surrogate pairs */
             term_cursor_x = (term_cursor_x + cmd.length) % term_width;
             if (term_cursor_x == 0) {
                 /* show the cursor on the next line */
-                stdout.write(" \x08");
+                stdout_write(" \x08");
             }
             /* remove the trailing characters */
-            stdout.write("\x1b[J");
+            stdout_write("\x1b[J");
             last_cmd = cmd;
             last_cursor_pos = cmd.length;
         }
@@ -298,7 +303,7 @@ import * as uuid from "@tjs/uuid";
     }
 
     function clear_screen() {
-        stdout.write("\x1b[H\x1b[J");
+        stdout_write("\x1b[H\x1b[J");
         return -2;
     }
 
@@ -345,7 +350,7 @@ import * as uuid from "@tjs/uuid";
     }        
 
     function accept_line() {
-        stdout.write("\n");
+        stdout_write("\n");
         history_add(cmd);
         return -1;
     }
@@ -415,7 +420,7 @@ import * as uuid from "@tjs/uuid";
 
     function control_d() {
         if (cmd.length == 0) {
-            stdout.write("\n");
+            stdout_write("\n");
             exit(0);
         } else {
             delete_char_dir(1);
@@ -503,10 +508,10 @@ import * as uuid from "@tjs/uuid";
 
     function control_c() {
         if (last_fun === control_c) {
-            stdout.write("\n");
+            stdout_write("\n");
             exit(0);
         } else {
-            stdout.write("\n(Press Ctrl-C again to quit)\n");
+            stdout_write("\n(Press Ctrl-C again to quit)\n");
             readline_print_prompt();
         }
     }
@@ -646,7 +651,7 @@ import * as uuid from "@tjs/uuid";
             max_width += 2;
             n_cols = Math.max(1, Math.floor((term_width + 1) / max_width));
             n_rows = Math.ceil(tab.length / n_cols);
-            stdout.write("\n");
+            stdout_write("\n");
             /* display the sorted list column-wise */
             for (row = 0; row < n_rows; row++) {
                 for (col = 0; col < n_cols; col++) {
@@ -656,9 +661,9 @@ import * as uuid from "@tjs/uuid";
                     s = tab[i];
                     if (col != n_cols - 1)
                         s = s.padEnd(max_width);
-                    stdout.write(s);
+                    stdout_write(s);
                 }
-                stdout.write("\n");
+                stdout_write("\n");
             }
             /* show a new prompt */
             readline_print_prompt();
@@ -730,7 +735,7 @@ import * as uuid from "@tjs/uuid";
 
     function readline_print_prompt()
     {
-        stdout.write(prompt);
+        stdout_write(prompt);
         term_cursor_x = prompt.length % term_width;
         last_cmd = "";
         last_cursor_pos = 0;
@@ -888,65 +893,64 @@ import * as uuid from "@tjs/uuid";
         var stack = [];
 
         function print_rec(a) {
-            var n, i, keys, key, type, s;
+            var n, i, keys, key, type;
             
             type = typeof a;
             if (type === "object") {
                 if (a === null) {
-                    stdout.write(String(a));
+                    stdout_write(String(a));
                 } else if (stack.indexOf(a) >= 0) {
-                    stdout.write("[circular]");
+                    stdout_write("[circular]");
                 } else {
                     stack.push(a);
                     if (Array.isArray(a)) {
                         n = a.length;
-                        stdout.write("[ ");
+                        stdout_write("[ ");
                         for(i = 0; i < n; i++) {
                             if (i !== 0)
-                                stdout.write(", ");
+                                stdout_write(", ");
                             if (i in a) {
                                 print_rec(a[i]);
                             } else {
-                                stdout.write("<empty>");
+                                stdout_write("<empty>");
                             }
                             if (i > 20) {
-                                stdout.write("...");
+                                stdout_write("...");
                                 break;
                             }
                         }
-                        stdout.write(" ]");
+                        stdout_write(" ]");
+                    } else if (Object.__getClass(a) === "Date") {
+                        stdout_write(a.toString());
                     } else if (Object.__getClass(a) === "RegExp") {
-                        stdout.write(a.toString());
+                        stdout_write(a.toString());
                     } else {
                         keys = Object.keys(a);
                         n = keys.length;
-                        stdout.write("{ ");
+                        stdout_write("{ ");
                         for(i = 0; i < n; i++) {
                             if (i !== 0)
-                                stdout.write(", ");
+                                stdout_write(", ");
                             key = keys[i];
-                            stdout.write(key + ": ");
+                            stdout_write(key + ": ");
                             print_rec(a[key]);
                         }
-                        stdout.write(" }");
+                        stdout_write(" }");
                     }
                     stack.pop(a);
                 }
             } else if (type === "string") {
-                s = a.__quote();
-                if (s.length > 79)
-                    s = s.substring(0, 75) + "...\"";
-                stdout.write(s);
+                stdout_write(a.__quote());
             } else if (type === "number" || type === "bigfloat") {
-                stdout.write(number_to_string(a, 10));
+                stdout_write(number_to_string(a, 10));
             } else if (type === "bigint") {
-                stdout.write(bigint_to_string(a, 10));
+                stdout_write(bigint_to_string(a, 10));
             } else if (type === "symbol") {
-                stdout.write(String(a));
+                stdout_write(String(a));
             } else if (type === "function") {
-                stdout.write("function " + a.name + "()");
+                stdout_write("function " + a.name + "()");
             } else {
-                stdout.write(String(a));
+                stdout_write(String(a));
             }
         }
         print_rec(a);
@@ -967,12 +971,6 @@ import * as uuid from "@tjs/uuid";
     function handle_directive(cmd, expr) {        
         if (cmd === "h" || cmd === "?" || cmd == "help") {
             help();
-        } else if (cmd === "load") {
-            var filename = expr.substring(cmd.length + 1).trim();
-            if (filename.lastIndexOf(".") <= filename.lastIndexOf("/"))
-                filename += ".js";
-            tjs.loadScript(filename);
-            return false;
         } else if (cmd === "t") {
             show_time = !show_time;
         } else if (cmd === "clear") {
@@ -980,7 +978,7 @@ import * as uuid from "@tjs/uuid";
         } else if (cmd === "q") {
             exit(0);
         } else {
-            stdout.write("Unknown directive: " + cmd + "\n");
+            stdout_write("Unknown directive: " + cmd + "\n");
             return false;
         }
         return true;
@@ -990,10 +988,10 @@ import * as uuid from "@tjs/uuid";
         function sel(n) {
             return n ? "*": " ";
         }
-        stdout.write("\\h          this help\n" +
+        stdout_write("\\h          this help\n" +
                  "\\t         " + sel(show_time) + "toggle timing display\n" +
                   "\\clear      clear the terminal\n");
-        stdout.write("\\q          exit\n");
+        stdout_write("\\q          exit\n");
     }
 
     function eval_and_print(expr) {
@@ -1002,28 +1000,35 @@ import * as uuid from "@tjs/uuid";
         try {
             var now = (new Date).getTime();
             /* eval as a script */
-            result = tjs.evalScript(expr);
+            result = tjs._evalScript(expr);
             eval_time = (new Date).getTime() - now;
-            stdout.write(colors[styles.result]);
+            stdout_write(colors[styles.result]);
             print(result);
-            stdout.write("\n");
-            stdout.write(colors.none);
+            stdout_write("\n");
+            stdout_write(colors.none);
             /* set the last result */
             g._ = result;
         } catch (error) {
-            stdout.write(colors[styles.error_msg]);
-            if (error instanceof Error) {
-                console.log(error);
-            } else {
-                stdout.write("Throw: ");
-                console.log(error);
-            }
-            stdout.write(colors.none);
+            dump_error(error);
         }
     }
 
+    function dump_error(error) {
+        stdout_write(colors[styles.error_msg]);
+        if (error instanceof Error) {
+            stdout_write(error);
+            stdout_write("\n");
+            stdout_write(error.stack);
+        } else {
+            stdout_write("Throw: ");
+            stdout_write(error);
+        }
+        stdout_write("\n");
+        stdout_write(colors.none);
+    }
+
     function cmd_start() {
-        stdout.write('Welcome to txiki.js — The tiny JavaScript runtime\nType "\\h" for help\n');
+        stdout_write('Welcome to txiki.js — The tiny JavaScript runtime\nType "\\h" for help\n');
         cmd_readline_start();
     }
 

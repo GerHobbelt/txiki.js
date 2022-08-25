@@ -1,22 +1,21 @@
 // Sample TCP echo server.
 //
 
-import { getopts } from '@tjs/getopts';
+import { getopts } from '@tjs/std';
 import { addr } from './utils.js';
 
 
 async function handleConnection(conn) {
-    console.log(`Accepted connection! ${addr(conn.getpeername())} <-> ${addr(conn.getsockname())}`);
+    console.log(`Accepted connection! ${addr(conn.localAddress)} <-> ${addr(conn.remoteAddress)}`);
 
-    let data;
+    const buf = new Uint8Array(65536);
     while (true) {
-        data = await conn.read();
-        //console.log(String.fromCharCode.apply(null, new Uint8Array(buf, 0, nread)));
-        if (!data) {
+        const nread = await conn.read(buf);
+        if (!nread) {
             console.log('connection closed!');
             break;
         }
-        conn.write(data);
+        await conn.write(buf.subarray(0, nread));
     }
 }
 
@@ -32,16 +31,11 @@ async function handleConnection(conn) {
         }
     });
 
-    const t = new tjs.TCP();
+    const l = await tjs.listen('tcp', options.listen, options.port);
 
-    t.bind({ip: options.listen, port: options.port});
-    t.listen();
+    console.log(`Listening on ${addr(l.localAddress)}`); 
 
-    console.log(`Listening on ${addr(t.getsockname())}`); 
-
-    let conn;
-    while (true) {
-        conn = await t.accept();
+    for await (let conn of l) {
         handleConnection(conn);
         conn = undefined;
     }

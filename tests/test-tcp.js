@@ -1,5 +1,8 @@
 import assert from './assert.js';
 
+const encoder = new TextEncoder();
+const decoer = new TextDecoder();
+
 
 async function doEchoServer(server) {
     const conn = await server.accept();
@@ -8,40 +11,38 @@ async function doEchoServer(server) {
         return;
     }
 
-    let data;
+    const buf = new Uint8Array(4096);
     while (true) {
-        data = await conn.read();
-        if (!data) {
+        const nread = await conn.read(buf);
+        if (!nread) {
             break;
         }
-        conn.write(data);
+        conn.write(buf.slice(0, nread));
     }
 }
 
 (async () => {
-    const server = new tjs.TCP();
-    server.bind({ ip: '127.0.0.1' });
-    server.listen();
+    const server = await tjs.listen('tcp', '0.0.0.0');
+
     doEchoServer(server);
 
-    const client = new tjs.TCP();
-    await client.connect(server.getsockname());
-    client.write("PING");
-    let data, dataStr;
-    data = await client.read();
-    dataStr = new TextDecoder().decode(data);
-    assert.eq(dataStr, "PING", "sending strings works");
-    client.write(data);
-    data = await client.read();
-    dataStr = new TextDecoder().decode(data);
-    assert.eq(dataStr, "PING", "sending a Uint8Array works");
+    const readBuf = new Uint8Array(4096);
+
+    const serverAddr = server.localAddress;
+    const client = await tjs.connect('tcp', serverAddr.ip, serverAddr.port);
+    client.setKeepAlive();
+    client.setNoDelay(true);
+    client.write(encoder.encode('PING'));
+    let dataStr, nread;
+    nread = await client.read(readBuf);
+    dataStr = decoer.decode(readBuf.subarray(0, nread));
+    assert.eq(dataStr, "PING", "sending works");
+    assert.throws(() => { client.write("PING"); }, TypeError, "sending anything else gives TypeError");
     assert.throws(() => { client.write(1234); }, TypeError, "sending anything else gives TypeError");
     client.close();
     server.close();
 
-    const server1 = new tjs.TCP();
-    server1.bind({ ip: '127.0.0.1' });
-    server1.listen();
+    const server1 = await tjs.listen('tcp', '127.0.0.1');
     doEchoServer(server1);
     server1.close();
 })();

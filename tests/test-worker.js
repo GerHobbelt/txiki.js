@@ -1,11 +1,9 @@
 import assert from './assert.js';
-import { dirname, join } from '@tjs/path';
-
-const thisFile = import.meta.url.slice(7);   // strip "file://"
+import { path } from '@tjs/std';
 
 
 const data = JSON.stringify({foo: 42, bar: 'baz!'});
-const w = new Worker(join(dirname(thisFile), 'helpers', 'worker.js'));
+const w = new Worker(path.join(import.meta.dirname, 'helpers', 'worker.js'));
 const timer = setTimeout(() => {
     w.terminate();
 }, 1000);

@@ -22,67 +22,57 @@
  * THE SOFTWARE.
  */
 
+#include "embedjs.h"
 #include "private.h"
 #include "tjs.h"
 
 #include <string.h>
+#include <unistd.h>
 
-#define TJS__DEFAULT_STACK_SIZE 10 * 1024 * 1024
+#define TJS__DEFAULT_STACK_SIZE 1048576
 
-extern const uint8_t repl[];
-extern const uint32_t repl_size;
+INCTXT(eval_stdin, "eval-stdin.js");
+
+/**
+ * These are defined now:
+ *
+ * const unsigned char tjs__code_eval_stdin_data[];
+ * const unsigned char *const tjs__code_eval_stdin_end;
+ * const unsigned int tjs__code_eval_stdin_size;
+ *
+ */
+
+INCTXT(repl, "repl.js");
+
+/**
+ * These are defined now:
+ *
+ * const unsigned char tjs__code_repl_data[];
+ * const unsigned char *const tjs__code_repl_end;
+ * const unsigned int tjs__code_repl_size;
+ *
+ */
 
 static int tjs__argc = 0;
 static char **tjs__argv = NULL;
 
 
-static int tjs_init(JSContext *ctx, JSModuleDef *m) {
-    tjs_mod_dns_init(ctx, m);
-    tjs_mod_error_init(ctx, m);
-    tjs_mod_fs_init(ctx, m);
-    tjs_mod_misc_init(ctx, m);
-    tjs_mod_process_init(ctx, m);
-    tjs_mod_signals_init(ctx, m);
-    tjs_mod_std_init(ctx, m);
-    tjs_mod_streams_init(ctx, m);
-    tjs_mod_timers_init(ctx, m);
-    tjs_mod_udp_init(ctx, m);
-#ifdef TJS_HAVE_WASM
-    tjs_mod_wasm_init(ctx, m);
-#endif
-    tjs_mod_worker_init(ctx, m);
-#ifdef TJS_HAVE_CURL
-    tjs_mod_xhr_init(ctx, m);
-#endif
-
-    return 0;
-}
-
-JSModuleDef *js_init_module_uv(JSContext *ctx, const char *name) {
-    JSModuleDef *m;
-    m = JS_NewCModule(ctx, name, tjs_init);
-    if (!m)
-        return NULL;
-
-    tjs_mod_dns_export(ctx, m);
-    tjs_mod_error_export(ctx, m);
-    tjs_mod_fs_export(ctx, m);
-    tjs_mod_misc_export(ctx, m);
-    tjs_mod_process_export(ctx, m);
-    tjs_mod_std_export(ctx, m);
-    tjs_mod_streams_export(ctx, m);
-    tjs_mod_signals_export(ctx, m);
-    tjs_mod_timers_export(ctx, m);
-    tjs_mod_udp_export(ctx, m);
-#ifdef TJS_HAVE_WASM
-    tjs_mod_wasm_export(ctx, m);
-#endif
-    tjs_mod_worker_export(ctx, m);
-#ifdef TJS_HAVE_CURL
-    tjs_mod_xhr_export(ctx, m);
-#endif
-
-    return m;
+static void tjs__bootstrap_core(JSContext *ctx, JSValue ns) {
+    tjs__mod_dns_init(ctx, ns);
+    tjs__mod_error_init(ctx, ns);
+    tjs__mod_ffi_init(ctx, ns);
+    tjs__mod_fs_init(ctx, ns);
+    tjs__mod_fswatch_init(ctx, ns);
+    tjs__mod_os_init(ctx, ns);
+    tjs__mod_process_init(ctx, ns);
+    tjs__mod_signals_init(ctx, ns);
+    tjs__mod_streams_init(ctx, ns);
+    tjs__mod_sys_init(ctx, ns);
+    tjs__mod_timers_init(ctx, ns);
+    tjs__mod_udp_init(ctx, ns);
+    tjs__mod_wasm_init(ctx, ns);
+    tjs__mod_worker_init(ctx, ns);
+    tjs__mod_xhr_init(ctx, ns);
 }
 
 JSValue tjs__get_args(JSContext *ctx) {
@@ -105,10 +95,11 @@ static void tjs__promise_rejection_tracker(JSContext *ctx,
         CHECK_EQ(JS_IsUndefined(event_ctor), 0);
 
         JSValue event_name = JS_NewString(ctx, "unhandledrejection");
-        JSValueConst args[2];
+        JSValueConst args[3];
         args[0] = event_name;
-        args[1] = reason;
-        JSValue event = JS_CallConstructor(ctx, event_ctor, 2, args);
+        args[1] = promise;
+        args[2] = reason;
+        JSValue event = JS_CallConstructor(ctx, event_ctor, countof(args), args);
         CHECK_EQ(JS_IsException(event), 0);
 
         JSValue dispatch_func = JS_GetPropertyStr(ctx, global_obj, "dispatchEvent");
@@ -124,16 +115,16 @@ static void tjs__promise_rejection_tracker(JSContext *ctx,
 
         if (JS_IsException(ret)) {
             tjs_dump_error(ctx);
-        } else if (JS_ToBool(ctx, ret)) {
-            // The event wasn't cancelled, log the error and maybe abort.
+        } else {
             fprintf(stderr, "Unhandled promise rejection: ");
             tjs_dump_error1(ctx, reason);
-            TJSRuntime *qrt = TJS_GetRuntime(ctx);
-            CHECK_NOT_NULL(qrt);
-            if (!qrt->options.no_abort_on_unhandled_rejection) {
-                fprintf(stderr, "Unhandled promise rejected, aborting!\n");
-                fflush(stderr);
-                abort();
+
+            if (JS_ToBool(ctx, ret)) {
+                // The event wasn't cancelled, maybe abort.
+                TJSRuntime *qrt = TJS_GetRuntime(ctx);
+                CHECK_NOT_NULL(qrt);
+                JS_Throw(qrt->ctx, JS_DupValue(qrt->ctx, reason));
+                TJS_Stop(qrt);
             }
         }
 
@@ -150,7 +141,7 @@ static void uv__stop(uv_async_t *handle) {
 
 void TJS_DefaultOptions(TJSRunOptions *options) {
     static TJSRunOptions default_options = {
-        .no_abort_on_unhandled_rejection = false,
+        .mem_limit = -1,
         .stack_size = TJS__DEFAULT_STACK_SIZE
     };
 
@@ -187,7 +178,10 @@ TJSRuntime *TJS_NewRuntimeInternal(bool is_worker, TJSRunOptions *options) {
     JS_SetRuntimeOpaque(qrt->rt, qrt);
     JS_SetContextOpaque(qrt->ctx, qrt);
 
-    /* Increase stack size */
+    /* Set memory limit */
+    JS_SetMemoryLimit(qrt->rt, options->mem_limit);
+
+    /* Set stack size */
     JS_SetMaxStackSize(qrt->rt, options->stack_size);
 
     /* Enable BigFloat and BigDecimal */
@@ -214,35 +208,40 @@ TJSRuntime *TJS_NewRuntimeInternal(bool is_worker, TJSRunOptions *options) {
     CHECK_EQ(uv_async_init(&qrt->loop, &qrt->stop, uv__stop), 0);
     qrt->stop.data = qrt;
 
-    /* loader for ES6 modules */
-    JS_SetModuleLoaderFunc(qrt->rt, tjs_module_normalizer, tjs_module_loader, qrt);
+    /* loader for ES modules */
+    JS_SetModuleLoaderFunc(qrt->rt, NULL, tjs_module_loader, qrt);
 
     /* unhandled promise rejection tracker */
     JS_SetHostPromiseRejectionTracker(qrt->rt, tjs__promise_rejection_tracker, NULL);
 
     /* start bootstrap */
-    qrt->in_bootstrap = true;
+    JSValue global_obj = JS_GetGlobalObject(qrt->ctx);
+    JSAtom bootstrap_ns_atom = JS_NewAtom(qrt->ctx, "__bootstrap");
+    JSValue bootstrap_ns = JS_NewObjectProto(qrt->ctx, JS_NULL);
+    JS_DupValue(qrt->ctx, bootstrap_ns); // JS_SetProperty frees the value.
+    JS_SetProperty(qrt->ctx, global_obj, bootstrap_ns_atom, bootstrap_ns);
 
-    /* core module */
-    js_init_module_uv(qrt->ctx, "@tjs/core");
-
+    tjs__bootstrap_core(qrt->ctx, bootstrap_ns);
     tjs__bootstrap_globals(qrt->ctx);
 
-    /* extra builtin modules */
-    tjs__add_builtins(qrt->ctx);
+    /* standard library */
+    tjs__add_stdlib(qrt->ctx);
+    
 
     /* end bootstrap */
-    qrt->in_bootstrap = false;
+    JS_DeleteProperty(qrt->ctx, global_obj, bootstrap_ns_atom, 0);
+    JS_FreeAtom(qrt->ctx, bootstrap_ns_atom);
+    JS_FreeValue(qrt->ctx, bootstrap_ns);
 
     /* WASM */
-#ifdef TJS_HAVE_WASM
     qrt->wasm_ctx.env = m3_NewEnvironment();
-#endif
 
     /* Load some builtin references for easy access */
-    JSValue global_obj = JS_GetGlobalObject(qrt->ctx);
+    qrt->builtins.date_ctor = JS_GetPropertyStr(qrt->ctx, global_obj, "Date");
+    CHECK_EQ(JS_IsUndefined(qrt->builtins.date_ctor), 0);
     qrt->builtins.u8array_ctor = JS_GetPropertyStr(qrt->ctx, global_obj, "Uint8Array");
     CHECK_EQ(JS_IsUndefined(qrt->builtins.u8array_ctor), 0);
+
     JS_FreeValue(qrt->ctx, global_obj);
 
     return qrt;
@@ -255,23 +254,20 @@ void TJS_FreeRuntime(TJSRuntime *qrt) {
     uv_close((uv_handle_t *) &qrt->jobs.check, NULL);
     uv_close((uv_handle_t *) &qrt->stop, NULL);
 
+    JS_FreeValue(qrt->ctx, qrt->builtins.date_ctor);
     JS_FreeValue(qrt->ctx, qrt->builtins.u8array_ctor);
 
     JS_FreeContext(qrt->ctx);
     JS_FreeRuntime(qrt->rt);
 
-    /* Destroy CURLM hande. */
-#ifdef TJS_HAVE_CURL
+    /* Destroy CURLM handle. */
     if (qrt->curl_ctx.curlm_h) {
         curl_multi_cleanup(qrt->curl_ctx.curlm_h);
         uv_close((uv_handle_t *) &qrt->curl_ctx.timer, NULL);
     }
-#endif
 
     /* Destroy WASM runtime. */
-#ifdef TJS_HAVE_WASM
     m3_FreeEnvironment(qrt->wasm_ctx.env);
-#endif
 
     /* Cleanup loop. All handles should be closed. */
     int closed = 0;
@@ -349,7 +345,7 @@ static void uv__check_cb(uv_check_t *handle) {
 }
 
 /* main loop which calls the user JS callbacks */
-void TJS_Run(TJSRuntime *qrt) {
+int TJS_Run(TJSRuntime *qrt) {
     CHECK_EQ(uv_prepare_start(&qrt->jobs.prepare, uv__prepare_cb), 0);
     uv_unref((uv_handle_t *) &qrt->jobs.prepare);
     CHECK_EQ(uv_check_start(&qrt->jobs.check, uv__check_cb), 0);
@@ -362,6 +358,17 @@ void TJS_Run(TJSRuntime *qrt) {
     uv__maybe_idle(qrt);
 
     uv_run(&qrt->loop, UV_RUN_DEFAULT);
+
+    int ret = 0;
+    JSValue exc = JS_GetException(qrt->ctx);
+    if (!JS_IsNull(exc)) {
+        tjs_dump_error1(qrt->ctx, exc);
+        ret = 1;
+    }
+
+    JS_FreeValue(qrt->ctx, exc);
+
+    return ret;
 }
 
 void TJS_Stop(TJSRuntime *qrt) {
@@ -405,10 +412,10 @@ int tjs__load_file(JSContext *ctx, DynBuf *dbuf, const char *filename) {
     return r;
 }
 
-JSValue TJS_EvalFile(JSContext *ctx, const char *filename, int flags, bool is_main, char *override_filename) {
+JSValue TJS_EvalModule(JSContext *ctx, const char *filename, bool is_main) {
     DynBuf dbuf;
     size_t dbuf_size;
-    int r, eval_flags;
+    int r;
     JSValue ret;
 
     dbuf_init(&dbuf);
@@ -424,32 +431,15 @@ JSValue TJS_EvalFile(JSContext *ctx, const char *filename, int flags, bool is_ma
     /* Add null termination, required by JS_Eval. */
     dbuf_putc(&dbuf, '\0');
 
-    if (flags == -1) {
-        if (JS_DetectModule((const char *) dbuf.buf, dbuf_size))
-            eval_flags = JS_EVAL_TYPE_MODULE;
-        else
-            eval_flags = JS_EVAL_TYPE_GLOBAL;
-    } else {
-        eval_flags = flags;
-    }
-
-    if ((eval_flags & JS_EVAL_TYPE_MASK) == JS_EVAL_TYPE_MODULE) {
-        /* for the modules, we compile then run to be able to set import.meta */
-        ret = JS_Eval(ctx,
-                      (char *) dbuf.buf,
-                      dbuf_size,
-                      override_filename != NULL ? override_filename : filename,
-                      eval_flags | JS_EVAL_FLAG_COMPILE_ONLY);
-        if (!JS_IsException(ret)) {
-            js_module_set_import_meta(ctx, ret, TRUE, is_main);
-            ret = JS_EvalFunction(ctx, ret);
-        }
-    } else {
-        ret = JS_Eval(ctx,
-                      (char *) dbuf.buf,
-                      dbuf_size,
-                      override_filename != NULL ? override_filename : filename,
-                      eval_flags);
+    /* Compile then run to be able to set import.meta */
+    ret = JS_Eval(ctx,
+                  (char *) dbuf.buf,
+                  dbuf_size,
+                  filename,
+                  JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+    if (!JS_IsException(ret)) {
+        js_module_set_import_meta(ctx, ret, TRUE, is_main);
+        ret = JS_EvalFunction(ctx, ret);
     }
 
     /* Emit window 'load' event. */
@@ -465,6 +455,22 @@ JSValue TJS_EvalFile(JSContext *ctx, const char *filename, int flags, bool is_ma
     return ret;
 }
 
-void TJS_RunRepl(JSContext *ctx) {
-    CHECK_EQ(0, tjs__eval_binary(ctx, repl, repl_size));
-}
+int TJS_RunMain(TJSRuntime *qrt, const char *filename) {
+    JSContext *ctx = qrt->ctx;
+
+    if (filename) {
+        int r = 0;
+        JSValue val = TJS_EvalModule(ctx, filename, true);
+
+        if (JS_IsException(val)) {
+            tjs_dump_error(ctx);
+            r = -1;
+        }
+        JS_FreeValue(ctx, val);
+        return r;
+    } else if (uv_guess_handle(STDIN_FILENO) == UV_TTY) {
+        return tjs__eval_text(ctx, tjs__code_repl_data, tjs__code_repl_size, "repl.js");
+    } else {
+        return tjs__eval_text(ctx, tjs__code_eval_stdin_data, tjs__code_eval_stdin_size, "eval-stdin.js");
+    }
+};

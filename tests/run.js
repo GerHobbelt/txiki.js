@@ -1,6 +1,5 @@
-import { basename, dirname, join } from '@tjs/path';
+import { path } from '@tjs/std';
 
-const thisFile = import.meta.url.slice(7);  // strip "file://"
 
 const TIMEOUT = 10 * 1000;
 
@@ -32,12 +31,12 @@ class Test {
     }
 
     run() {
-        const args = [ tjs.exepath(), this._fileName ];
+        const args = [ tjs.exepath, this._fileName ];
         this._proc = tjs.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
         this._stdout = this._slurpStdio(this._proc.stdout);
         this._stderr = this._slurpStdio(this._proc.stderr);
         this._timer = setTimeout(() => {
-            this._proc.kill(tjs.signal.SIGKILL);
+            this._proc.kill(tjs.SIGKILL);
             this._timeout = true;
         }, TIMEOUT);
         this._proc_exit = this._proc.wait();
@@ -51,8 +50,8 @@ class Test {
         const status = status_.value;
 
         return {
-            name: basename(this._fileName),
-            failed: status.exit_status !== 0 || status.term_signal !== 0,
+            name: path.basename(this._fileName),
+            failed: status.exit_status !== 0 || status.term_signal !== null,
             status,
             stdout: stdout.value,
             stderr: stderr.value,
@@ -61,16 +60,18 @@ class Test {
     }
 
     async _slurpStdio(s) {
+        const decoder = new TextDecoder();
         const chunks = [];
+        const buf = new Uint8Array(4096);
         while (true) {
-            const chunk = await s.read(4096);
-            if (!chunk) {
+            const nread = await s.read(buf);
+            if (!nread) {
                 break;
             }
-            chunks.push(chunk);
+            chunks.push(buf.slice(0, nread));
         }
 
-        return chunks.map(chunk => new TextDecoder().decode(chunk)).join('');
+        return chunks.map(chunk => decoder.decode(chunk)).join('');
     }
 }
 
@@ -92,21 +93,39 @@ function printResult(result) {
 }
 
 (async function() {
-    const dir = await tjs.fs.realpath(tjs.args[2] || dirname(thisFile));
-    const dirIter = await tjs.fs.readdir(dir);
+    const dir = await tjs.realpath(tjs.args[2] || import.meta.dirname);
+    const dirIter = await tjs.readdir(dir);
     const tests = [];
+
     for await (const item of dirIter) {
         const { name } = item;
         if (name.startsWith('test-') && name.endsWith('.js')) {
-            tests.push(new Test(join(dir, name)));
+            tests.push(new Test(path.join(dir, name)));
         }
     }
 
     let failed = 0;
-    for (const test of tests) {
-        // TODO: run tests concurrently...
-        test.run();
-        const result = await test.wait();
+    const testConcurrency = tjs.environ.TJS_TEST_CONCURRENCY ?? tjs.availableParallelism();
+    const running = new Set();
+
+    while (true) {
+        if (tests.length === 0 && running.size === 0) {
+            break;
+        }
+
+        const n = testConcurrency - running.size;
+        const willRun = tests.splice(0, n);
+
+        for (const test of willRun) {
+            test.run();
+            const p = test.wait().then(r => {
+                running.delete(p);
+                return r;
+            })
+            running.add(p);
+        }
+
+        const result = await Promise.race(running);
         printResult(result);
         if (result.failed) {
             failed += 1;

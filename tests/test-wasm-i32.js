@@ -1,11 +1,9 @@
 import assert from './assert.js';
-import { dirname, join } from '@tjs/path';
-
-const thisFile = import.meta.url.slice(7);   // strip "file://"
+import { path } from '@tjs/std';
 
 
 (async () => {
-    const data = await tjs.fs.readFile(join(dirname(thisFile), 'wasm', 'i32.wasm'));
+    const data = await tjs.readFile(path.join(import.meta.dirname, 'wasm', 'i32.wasm'));
     const { instance } = await WebAssembly.instantiate(data);
     const { exports } = instance;
 
