@@ -176,6 +176,11 @@ declare namespace tjs {
     function exit(code: number): void;
 
     /**
+     * Changes the current working directory.
+     */
+    function chdir(dir: string): void;
+
+    /**
      * Gets the current working directory.
      */
     function cwd(): string;
@@ -628,7 +633,8 @@ declare namespace tjs {
      * }
      * ```
      */
-    interface DirHandle extends AsyncIterator<DirEnt> {
+    interface DirHandle extends AsyncIterableIterator<DirEnt> {
+
         /**
          * Closes the directory handle.
          */
