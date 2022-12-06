@@ -321,21 +321,15 @@ static JSValue tjs_xhr_constructor(JSContext *ctx, JSValueConst new_target, int 
         x->events[i] = JS_UNDEFINED;
     }
 
-    tjs_curl_init();
-
     x->curl_private.arg = x;
     x->curl_private.done_cb = curlm__done_cb;
 
     x->curlm_h = tjs__get_curlm(ctx);
-    x->curl_h = curl_easy_init();
+    x->curl_h = tjs__curl_easy_init();
+
     curl_easy_setopt(x->curl_h, CURLOPT_PRIVATE, &x->curl_private);
-    curl_easy_setopt(x->curl_h, CURLOPT_USERAGENT, "tjs/1.0");
-    curl_easy_setopt(x->curl_h, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(x->curl_h, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(x->curl_h, CURLOPT_NOSIGNAL, 1L);
-#ifdef CURL_HTTP_VERSION_2
-    curl_easy_setopt(x->curl_h, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
-#endif
     curl_easy_setopt(x->curl_h, CURLOPT_XFERINFOFUNCTION, curl__progress_cb);
     curl_easy_setopt(x->curl_h, CURLOPT_XFERINFODATA, x);
     curl_easy_setopt(x->curl_h, CURLOPT_WRITEFUNCTION, curl__data_cb);
@@ -764,7 +758,7 @@ static const JSCFunctionListEntry tjs_xhr_proto_funcs[] = {
     TJS_CFUNC_DEF("setRequestHeader", 2, tjs_xhr_setrequestheader),
 };
 
-void tjs__mod_xhr_init(JSContext *ctx,JSValue ns) {
+void tjs__mod_xhr_init(JSContext *ctx, JSValue ns) {
     JSValue proto, obj;
 
     /* XHR class */

@@ -23,16 +23,43 @@
  */
 
 #include "curl-utils.h"
+#include "utils.h"
+#include "version.h"
 
+#define TJS__UA_STRING                                                                                             \
+    "txiki.js/" STRINGIFY(TJS_VERSION_MAJOR) "." STRINGIFY(TJS_VERSION_MINOR) "." STRINGIFY(TJS_VERSION_PATCH) TJS_VERSION_SUFFIX
 
 static uv_once_t curl__init_once = UV_ONCE_INIT;
 
-void tjs__curl_init_once(void) {
+static void tjs__curl_init_once(void) {
     curl_global_init(CURL_GLOBAL_ALL);
 }
 
-void tjs_curl_init(void) {
+static void tjs__curl_init(void) {
     uv_once(&curl__init_once, tjs__curl_init_once);
+}
+
+CURL* tjs__curl_easy_init(void) {
+    tjs__curl_init();
+
+    CURL *curl_h = curl_easy_init();
+
+    curl_easy_setopt(curl_h, CURLOPT_USERAGENT, TJS__UA_STRING);
+    curl_easy_setopt(curl_h, CURLOPT_FOLLOWLOCATION, 1L);
+    /* only allow HTTP */
+#if defined(CURLOPT_PROTOCOLS_STR)
+    curl_easy_setopt(curl_h, CURLOPT_PROTOCOLS_STR, "http,https");
+    curl_easy_setopt(curl_h, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+    curl_easy_setopt(curl_h, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    curl_easy_setopt(curl_h, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+#endif
+    /* use TLS v1.1 or higher */
+#if defined(CURL_SSLVERSION_TLSv1_1)
+    curl_easy_setopt(curl_h, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_1);
+#endif
+
+    return curl_h;
 }
 
 size_t curl__write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
@@ -44,14 +71,12 @@ size_t curl__write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
 }
 
 int tjs_curl_load_http(DynBuf *dbuf, const char *url) {
-    tjs_curl_init();
-
     CURL *curl_handle;
     CURLcode res;
     int r = -1;
 
     /* init the curl session */
-    curl_handle = curl_easy_init();
+    curl_handle = tjs__curl_easy_init();
 
     /* specify URL to get */
     curl_easy_setopt(curl_handle, CURLOPT_URL, url);
@@ -61,9 +86,6 @@ int tjs_curl_load_http(DynBuf *dbuf, const char *url) {
 
     /* we pass our 'chunk' struct to the callback function */
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *) dbuf);
-
-    /* some servers don't like requests that are made without a user-agent field, so we provide one */
-    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "tjs/1.0");
 
     /* get it! */
     res = curl_easy_perform(curl_handle);
@@ -231,7 +253,8 @@ CURLM *tjs__get_curlm(JSContext *ctx) {
     CHECK_NOT_NULL(qrt);
 
     if (!qrt->curl_ctx.curlm_h) {
-        tjs_curl_init();
+        tjs__curl_init();
+
         CURLM *curlm_h = curl_multi_init();
         curl_multi_setopt(curlm_h, CURLMOPT_SOCKETFUNCTION, curl__handle_socket);
         curl_multi_setopt(curlm_h, CURLMOPT_SOCKETDATA, qrt);
