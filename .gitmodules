@@ -1,10 +1,10 @@
 [submodule "deps/libuv"]
 	path = deps/libuv
-	url = git@github.com:libuv/libuv
+	url = https://github.com/libuv/libuv
 	branch = v1.x
 [submodule "deps/wasm3"]
 	path = deps/wasm3
-	url = git@github.com:saghul/wasm3.git
+	url = https://github.com/saghul/wasm3.git
 	branch = v0.5-tjs
 [submodule "deps/libffi"]
 	path = deps/libffi
