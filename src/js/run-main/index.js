@@ -128,7 +128,10 @@ if (options.help) {
                 try {
                     internals.core.evalFile(filename);
                 } catch (e) {
-                    console.error(e);
+                    if (e instanceof SyntaxError) {
+                        console.error(e);
+                    }
+
                     tjs.exit(1);
                 }
             });
