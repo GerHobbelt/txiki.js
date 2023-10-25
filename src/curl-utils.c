@@ -1,5 +1,5 @@
 /*
- * QuickJS libuv bindings
+ * txiki.js
  *
  * Copyright (c) 2019-present Saúl Ibarra Corretgé <s@saghul.net>
  *
@@ -50,7 +50,7 @@ CURL *tjs__curl_easy_init(CURL *curl_h) {
     curl_easy_setopt(curl_h, CURLOPT_USERAGENT, TJS__UA_STRING);
     curl_easy_setopt(curl_h, CURLOPT_FOLLOWLOCATION, 1L);
     /* only allow HTTP */
-#if defined(CURLOPT_PROTOCOLS_STR)
+#if LIBCURL_VERSION_NUM >= 0x075500 /* added in 7.85.0 */
     curl_easy_setopt(curl_h, CURLOPT_PROTOCOLS_STR, "http,https");
     curl_easy_setopt(curl_h, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
 #else
@@ -58,7 +58,7 @@ CURL *tjs__curl_easy_init(CURL *curl_h) {
     curl_easy_setopt(curl_h, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
 #endif
     /* use TLS v1.1 or higher */
-#if defined(CURL_SSLVERSION_TLSv1_1)
+#if LIBCURL_VERSION_NUM >= 0x072200 /* added in 7.34.0 */
     curl_easy_setopt(curl_h, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_1);
 #endif
 
@@ -84,6 +84,9 @@ int tjs_curl_load_http(DynBuf *dbuf, const char *url) {
     /* specify URL to get */
     curl_easy_setopt(curl_handle, CURLOPT_URL, url);
 
+    /* set a 5 second timeout */
+    curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT_MS, 5000);
+
     /* send all data to this function  */
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, curl__write_cb);
 
@@ -102,9 +105,6 @@ int tjs_curl_load_http(DynBuf *dbuf, const char *url) {
 
     if (res != CURLE_OK) {
         r = -res;
-#if 0
-        printf("CURL ERROR: %d %s\n", res,  curl_easy_strerror(res));
-#endif
     }
 
     /* cleanup curl stuff */
