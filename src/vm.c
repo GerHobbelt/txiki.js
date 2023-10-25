@@ -52,6 +52,7 @@ static void tjs__bootstrap_core(JSContext *ctx, JSValue ns) {
     tjs__mod_os_init(ctx, ns);
     tjs__mod_process_init(ctx, ns);
     tjs__mod_signals_init(ctx, ns);
+    tjs__mod_sqlite3_init(ctx, ns);
     tjs__mod_streams_init(ctx, ns);
     tjs__mod_sys_init(ctx, ns);
     tjs__mod_timers_init(ctx, ns);
@@ -129,7 +130,7 @@ static void uv__stop(uv_async_t *handle) {
     uv_stop(&qrt->loop);
 }
 
-static void uv__walk(uv_handle_t* handle, void* arg) {
+static void uv__walk(uv_handle_t *handle, void *arg) {
     if (!uv_is_closing(handle))
         uv_close(handle, NULL);
 }
