@@ -10516,7 +10516,7 @@ var require_util = __commonJS({
   }
 });
 
-// src/js/polyfills/base.js
+// src/js/core/polyfills/base.js
 var import_queue_microtask = __toESM(require_queue_microtask());
 var core = globalThis.__bootstrap;
 globalThis.setTimeout = core.setTimeout;
@@ -10549,7 +10549,7 @@ Object.defineProperty(globalThis, "self", {
   }
 });
 
-// src/js/polyfills/event-target.js
+// src/js/core/polyfills/event-target.js
 var privateData = /* @__PURE__ */ new WeakMap();
 function pd(event) {
   const retv = privateData.get(event);
@@ -10852,7 +10852,7 @@ var EventTarget2 = class {
   }
 };
 
-// src/js/polyfills/event-target-polyfill.js
+// src/js/core/polyfills/event-target-polyfill.js
 var kCloseEventCode = Symbol("kCloseEventCode");
 var kCloseEventReason = Symbol("kCloseEventReason");
 var kCloseEventWasClean = Symbol("kCloseEventWasClean");
@@ -10997,7 +10997,7 @@ defineEventAttribute(windowProto, "load");
 defineEventAttribute(windowProto, "unhandledrejection");
 EventTarget2.__defineEventAttribute = defineEventAttribute;
 
-// src/js/polyfills/url-polyfill.js
+// src/js/core/polyfills/url-polyfill.js
 var import_url = __toESM(require_url3());
 var import_to_json = __toESM(require_to_json2());
 var import_url_search_params = __toESM(require_url_search_params3());
@@ -12213,10 +12213,10 @@ if (!globalThis.URLPattern) {
   globalThis.URLPattern = URLPattern;
 }
 
-// src/js/polyfills/url-polyfill.js
+// src/js/core/polyfills/url-polyfill.js
 window.URLPattern = URLPattern;
 
-// src/js/polyfills/xhr.js
+// src/js/core/polyfills/xhr.js
 var { XMLHttpRequest: XHR } = globalThis.__bootstrap;
 var kXHR = Symbol("kXHR");
 var XMLHttpRequest2 = class extends EventTarget {
@@ -12336,7 +12336,7 @@ Object.defineProperty(window, "XMLHttpRequest", {
   value: XMLHttpRequest2
 });
 
-// src/js/polyfills/index.js
+// src/js/core/polyfills/index.js
 var import_whatwg_fetch = __toESM(require_fetch_umd());
 
 // node_modules/abortcontroller-polyfill/dist/polyfill-patch-fetch.js
@@ -12738,15 +12738,15 @@ var import_whatwg_fetch = __toESM(require_fetch_umd());
   })(typeof self !== "undefined" ? self : global);
 });
 
-// src/js/polyfills/index.js
+// src/js/core/polyfills/index.js
 var import_es2018 = __toESM(require_polyfill_es2018());
 
-// src/js/polyfills/text-encoding.js
+// src/js/core/polyfills/text-encoding.js
 var import_text_encoding_utf_8 = __toESM(require_encoding_lib());
 window.TextEncoder = import_text_encoding_utf_8.TextEncoder;
 window.TextDecoder = import_text_encoding_utf_8.TextDecoder;
 
-// src/js/polyfills/blob.js
+// src/js/core/polyfills/blob.js
 var import_blob_polyfill = __toESM(require_Blob());
 Object.defineProperty(window, "Blob", {
   enumerable: true,
@@ -12755,7 +12755,7 @@ Object.defineProperty(window, "Blob", {
   value: import_blob_polyfill.Blob
 });
 
-// src/js/polyfills/console.js
+// src/js/core/polyfills/console.js
 var import_util = __toESM(require_util());
 var encoder2 = new TextEncoder();
 function print2() {
@@ -12997,7 +12997,7 @@ function v4(options, buf, offset) {
 }
 var v4_default = v4;
 
-// src/js/polyfills/crypto.js
+// src/js/core/polyfills/crypto.js
 var core2 = globalThis.__bootstrap;
 var TypedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 var TypedArrayProto_toStringTag = Object.getOwnPropertyDescriptor(TypedArrayPrototype, Symbol.toStringTag).get;
@@ -13037,7 +13037,7 @@ Object.defineProperty(window, "crypto", {
   value: crypto2
 });
 
-// src/js/polyfills/performance.js
+// src/js/core/polyfills/performance.js
 var core3 = globalThis.__bootstrap;
 var Performance = class {
   constructor() {
@@ -13119,7 +13119,7 @@ Object.defineProperty(window, "performance", {
   value: new Performance()
 });
 
-// src/js/polyfills/wasm.js
+// src/js/core/polyfills/wasm.js
 var { wasm } = globalThis.__bootstrap;
 var kWasmModule = Symbol("kWasmModule");
 var kWasmModuleRef = Symbol("kWasmModuleRef");
@@ -13287,7 +13287,7 @@ Object.defineProperty(globalThis, "WebAssembly", {
   value: new WebAssembly()
 });
 
-// src/js/polyfills/worker.js
+// src/js/core/polyfills/worker.js
 var { Worker: _Worker } = globalThis.__bootstrap;
 var kWorker = Symbol("kWorker");
 var Worker = class extends EventTarget {
@@ -13323,7 +13323,7 @@ Object.defineProperty(window, "Worker", {
   value: Worker
 });
 
-// src/js/polyfills/ws.js
+// src/js/core/polyfills/ws.js
 var { WebSocket: WS } = globalThis.__bootstrap;
 var kWS = Symbol("kWS");
 var kWsBinaryType = Symbol("kWsBinaryType");
@@ -13434,7 +13434,7 @@ Object.defineProperty(window, "WebSocket", {
   value: WebSocket
 });
 
-// src/js/tjs/alert-confirm-prompt.js
+// src/js/core/tjs/alert-confirm-prompt.js
 var encoder3 = new TextEncoder();
 var decoder = new TextDecoder();
 var LF = "\n".charCodeAt();
@@ -13487,7 +13487,7 @@ async function prompt2(msg = "Prompt", def = null) {
   return await readStdinLine() || def;
 }
 
-// src/js/tjs/eval-stdin.js
+// src/js/core/tjs/eval-stdin.js
 async function evalStdin() {
   const gEval = globalThis.eval;
   const decoder2 = new TextDecoder();
@@ -13495,7 +13495,7 @@ async function evalStdin() {
   const buf = [];
   while (true) {
     const n = await tjs.stdin.read(readBuf);
-    if (n === 0 || n === void 0) {
+    if (n === null) {
       break;
     }
     buf.push(...readBuf.subarray(0, n));
@@ -13503,7 +13503,7 @@ async function evalStdin() {
   gEval(decoder2.decode(new Uint8Array(buf)));
 }
 
-// src/js/tjs/ffi.js
+// src/js/core/tjs/ffi.js
 var ffi_exports = {};
 __export(ffi_exports, {
   AdvancedType: () => AdvancedType,
@@ -13523,7 +13523,7 @@ __export(ffi_exports, {
   types: () => types
 });
 
-// src/js/tjs/ffiutils.js
+// src/js/core/tjs/ffiutils.js
 function init({ StructType: StructType2, CFunction: CFunction2, PointerType: PointerType2 }) {
   function parseCProto2(header) {
     function tokenize(str) {
@@ -13834,7 +13834,7 @@ function init({ StructType: StructType2, CFunction: CFunction2, PointerType: Poi
   return { parseCProto: parseCProto2, astToLib: astToLib2 };
 }
 
-// src/js/tjs/ffi.js
+// src/js/core/tjs/ffi.js
 var core4 = globalThis.__bootstrap;
 var ffiInt = core4.ffi;
 var DlSymbol = class {
@@ -14238,7 +14238,7 @@ var JSCallback = class {
 };
 var { parseCProto, astToLib } = init({ StructType, CFunction, PointerType });
 
-// src/js/tjs/stream-utils.js
+// src/js/core/tjs/stream-utils.js
 function silentClose(handle) {
   try {
     handle.close();
@@ -14254,7 +14254,7 @@ function readableStreamForHandle(handle) {
       const buf = controller.byobRequest.view;
       try {
         const nread = await handle.read(buf);
-        if (!nread) {
+        if (nread === null) {
           silentClose(handle);
           controller.close();
           controller.byobRequest.respond(0);
@@ -14290,7 +14290,7 @@ function writableStreamForHandle(handle) {
   });
 }
 
-// src/js/tjs/fs.js
+// src/js/core/tjs/fs.js
 var core5 = globalThis.__bootstrap;
 var kReadable = Symbol("kReadable");
 var kWritable = Symbol("kWritable");
@@ -14327,7 +14327,7 @@ async function mkstemp(template) {
   return new Proxy(handle, fhProxyHandler);
 }
 
-// src/js/tjs/posix-socket.js
+// src/js/core/tjs/posix-socket.js
 var core6 = globalThis.__bootstrap;
 var posixSocket = core6.posix_socket;
 var PosixSocket;
@@ -14465,7 +14465,7 @@ if (posixSocket) {
   }, __publicField(_a2, "defines", Object.freeze(posixSocket.defines)), __publicField(_a2, "pollEvents", Object.freeze(posixSocket.uv_poll_event_bits)), _a2);
 }
 
-// src/js/tjs/repl.js
+// src/js/core/tjs/repl.js
 function _run(g) {
   var Object = g.Object;
   var String = g.String;
@@ -15620,7 +15620,128 @@ async function runRepl() {
   _run(globalThis);
 }
 
-// src/js/tjs/signal.js
+// src/js/core/tjs/run-tests.js
+var __path;
+var TIMEOUT = 10 * 1e3;
+var colors2 = {
+  none: "\x1B[0m",
+  black: "\x1B[30m",
+  red: "\x1B[31m",
+  green: "\x1B[32m",
+  yellow: "\x1B[33m",
+  blue: "\x1B[34m",
+  magenta: "\x1B[35m",
+  cyan: "\x1B[36m",
+  white: "\x1B[37m",
+  gray: "\x1B[30;1m",
+  grey: "\x1B[30;1m",
+  bright_red: "\x1B[31;1m",
+  bright_green: "\x1B[32;1m",
+  bright_yellow: "\x1B[33;1m",
+  bright_blue: "\x1B[34;1m",
+  bright_magenta: "\x1B[35;1m",
+  bright_cyan: "\x1B[36;1m",
+  bright_white: "\x1B[37;1m"
+};
+var Test = class {
+  constructor(fileName) {
+    this._fileName = fileName;
+  }
+  run() {
+    const args = [tjs.exepath, "run", this._fileName];
+    this._proc = tjs.spawn(args, { stdout: "pipe", stderr: "pipe" });
+    this._stdout = this._slurpStdio(this._proc.stdout);
+    this._stderr = this._slurpStdio(this._proc.stderr);
+    this._timer = setTimeout(() => {
+      this._proc.kill(tjs.SIGKILL);
+      this._timeout = true;
+    }, TIMEOUT);
+    this._proc_exit = this._proc.wait();
+    this._proc_exit.then(() => {
+      clearTimeout(this._timer);
+    });
+  }
+  async wait() {
+    const [status_, stdout, stderr] = await Promise.allSettled([this._proc_exit, this._stdout, this._stderr]);
+    const status = status_.value;
+    return {
+      name: __path.basename(this._fileName),
+      failed: status.exit_status !== 0 || status.term_signal !== null,
+      status,
+      stdout: stdout.value,
+      stderr: stderr.value,
+      timeout: Boolean(this._timeout)
+    };
+  }
+  async _slurpStdio(s) {
+    const decoder2 = new TextDecoder();
+    const chunks = [];
+    const buf = new Uint8Array(4096);
+    while (true) {
+      const nread = await s.read(buf);
+      if (nread === null) {
+        break;
+      }
+      chunks.push(buf.slice(0, nread));
+    }
+    return chunks.map((chunk) => decoder2.decode(chunk)).join("");
+  }
+};
+function printResult(result) {
+  const status = result.timeout ? colors2.yellow + "TIMEOUT" : result.failed ? colors2.red + "FAIL" : colors2.green + "OK";
+  console.log(`${result.name.padEnd(40, " ")} ${status + colors2.none}`);
+  if (result.failed) {
+    console.log("status:");
+    console.log(result.status);
+    if (result.stdout) {
+      console.log("stdout:");
+      console.log(result.stdout);
+    }
+    if (result.stderr) {
+      console.log("stderr:");
+      console.log(result.stderr);
+    }
+  }
+}
+async function runTests(d) {
+  const std = await import("@tjs/std");
+  __path = std.path;
+  const dir = await tjs.realpath(d || tjs.cwd());
+  const dirIter = await tjs.readdir(dir);
+  const tests = [];
+  for await (const item of dirIter) {
+    const { name } = item;
+    if (name.startsWith("test-") && name.endsWith(".js")) {
+      tests.push(new Test(__path.join(dir, name)));
+    }
+  }
+  let failed = 0;
+  const testConcurrency = tjs.environ.TJS_TEST_CONCURRENCY ?? tjs.availableParallelism();
+  const running = /* @__PURE__ */ new Set();
+  while (true) {
+    if (tests.length === 0 && running.size === 0) {
+      break;
+    }
+    const n = testConcurrency - running.size;
+    const willRun = tests.splice(0, n);
+    for (const test of willRun) {
+      test.run();
+      const p = test.wait().then((r) => {
+        running.delete(p);
+        return r;
+      });
+      running.add(p);
+    }
+    const result = await Promise.race(running);
+    printResult(result);
+    if (result.failed) {
+      failed += 1;
+    }
+  }
+  tjs.exit(failed);
+}
+
+// src/js/core/tjs/signal.js
 var core7 = globalThis.__bootstrap;
 function signal(sig, handler) {
   const signum = core7.signals[sig];
@@ -15630,7 +15751,7 @@ function signal(sig, handler) {
   return core7.signal(signum, handler);
 }
 
-// src/js/tjs/sockets.js
+// src/js/core/tjs/sockets.js
 var core8 = globalThis.__bootstrap;
 async function connect(transport, host, port, options = {}) {
   const addr = await prepareAddress(transport, host, port);
@@ -15830,7 +15951,7 @@ var DatagramEndpoint = class {
   }
 };
 
-// src/js/tjs/stdio.js
+// src/js/core/tjs/stdio.js
 var core9 = globalThis.__bootstrap;
 var kStdioHandle = Symbol("kStdioHandle");
 var kStdioHandleType = Symbol("kStdioHandleType");
@@ -15922,7 +16043,7 @@ function createStderr() {
   return createStdioStream(core9.STDERR_FILENO);
 }
 
-// src/js/tjs/worker-bootstrap.js
+// src/js/core/tjs/worker-bootstrap.js
 function bootstrapWorker() {
   const kWorkerSelf = Symbol("kWorkerSelf");
   const worker = globalThis.workerThis;
@@ -15944,7 +16065,7 @@ function bootstrapWorker() {
   defineEventAttribute2(Object.getPrototypeOf(self), "error");
 }
 
-// src/js/tjs/index.js
+// src/js/core/tjs/index.js
 var core10 = globalThis.__bootstrap;
 var tjs2 = /* @__PURE__ */ Object.create(null);
 var noExport = [
@@ -16078,6 +16199,7 @@ for (const propName of internals) {
 tjs2[kInternal]["bootstrapWorker"] = bootstrapWorker;
 tjs2[kInternal]["evalStdin"] = evalStdin;
 tjs2[kInternal]["runRepl"] = runRepl;
+tjs2[kInternal]["runTests"] = runTests;
 Object.defineProperty(globalThis, "tjs", {
   enumerable: true,
   configurable: false,

@@ -1,4 +1,4 @@
-import assert from './assert.js';
+import { assert } from '@tjs/std';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -20,7 +20,7 @@ async function doEchoServer(server) {
     const buf = new Uint8Array(4096);
     while (true) {
         const nread = await conn.read(buf);
-        if (!nread) {
+        if (nread === null) {
             break;
         }
         conn.write(buf.slice(0, nread));
