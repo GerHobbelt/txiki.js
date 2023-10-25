@@ -88,19 +88,19 @@ Other extras:
 - Import directly from HTTP(S) URLs
 - Import JSON files
 - BigFloat and BigDecimal extensions
-- [FFI]
 - Builtin test runner
 
 ### Standard library
 
-The builtin `@tjs/std` module exports the following:
+The following modules compose the standard library:
 
-- `assert` module
-- [getopts] module
-- [ipaddr] module
-- [path] module
-- [uuid] module
-- `createHash` function
+- `tjs:assert`: `assert` module
+- `tjs:ffi`: [FFI] module
+- `tjs:getopts`: [getopts] module
+- `tjs:ipaddr`: [ipaddr] module
+- `tjs:path`: [path] module
+- `tjs:uuid`: [uuid] module
+- `tjs:hashing`: `createHash` function
 
 ## Supported platforms
 

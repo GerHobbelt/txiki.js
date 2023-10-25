@@ -1,4 +1,5 @@
-import { assert, uuid } from '@tjs/std';
+import assert from 'tjs:assert';
+import uuid from 'tjs:uuid';
 
 
 // Verify ordering of v1 ids created with explicit times
@@ -84,3 +85,6 @@ v5('hello.example.com', v5.DNS, buf, 3);
 assert.ok(buf.length === testBuf.length+3 && buf.every(function(elem, idx) {
   return (idx >= 3) ? (elem === testBuf[idx-3]) : (elem === 'landmaster');
 }));
+
+// test the v4 we generate with our implementation is compliant
+assert.equal(uuid.version(crypto.randomUUID()), 4);
