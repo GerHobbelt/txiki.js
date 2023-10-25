@@ -25,6 +25,9 @@
 
 import * as std from '@tjs/std';
 
+const kInternal = Symbol.for('tjs.internal');
+const internal = tjs[kInternal];
+
 window.addEventListener('unhandledrejection', event => {
     // Avoid aborting in unhandled promised on the REPL.
     event.preventDefault();
@@ -1054,12 +1057,15 @@ window.addEventListener('unhandledrejection', event => {
 
                         stdout_write(' ]');
                     } else if (Object.__getClass(a) === 'Date') {
-                        stdout_write(a.toString());
+                        stdout_write(a.toISOString());
                     } else if (Object.__getClass(a) === 'RegExp') {
                         stdout_write(a.toString());
                     } else {
                         keys = Object.keys(a);
                         n = keys.length;
+                        var name = a[Symbol.toStringTag];
+                        if (name)
+                            stdout_write(name + ' ');
                         stdout_write('{ ');
 
                         for (i = 0; i < n; i++) {
@@ -1129,10 +1135,6 @@ window.addEventListener('unhandledrejection', event => {
     }
 
     function help() {
-        function sel(n) {
-            return n ? '*': ' ';
-        }
-
         stdout_write('\\h      this help\n' +
                      '\\clear  clear the terminal\n' +
                      '\\q      exit\n');
@@ -1145,7 +1147,7 @@ window.addEventListener('unhandledrejection', event => {
             var now = (new Date).getTime();
 
             /* eval as a script */
-            result = tjs._evalScript(expr);
+            result = internal.evalScript(expr);
             eval_time = (new Date).getTime() - now;
             stdout_write(colors[styles.result]);
             print(result);
