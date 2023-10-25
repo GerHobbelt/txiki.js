@@ -15887,6 +15887,9 @@ function createStdioStream(fd) {
     case "pipe": {
       const handle = new core9.Pipe();
       handle.open(fd);
+      if (!isStdin && core9.platform === "windows") {
+        handle.setBlocking(true);
+      }
       return new StreamType(handle, type);
     }
     case "file": {
@@ -15971,6 +15974,8 @@ var noExport = [
   "posix_socket",
   "random",
   "setInterval",
+  "setMaxStackSize",
+  "setMemoryLimit",
   "setTimeout",
   "signal",
   "signals",
@@ -16065,7 +16070,7 @@ if (core10.posix_socket) {
   });
 }
 var kInternal = Symbol.for("tjs.internal");
-var internals = ["evalFile", "evalScript", "isStdinTty"];
+var internals = ["evalFile", "evalScript", "isStdinTty", "setMaxStackSize", "setMemoryLimit"];
 tjs2[kInternal] = /* @__PURE__ */ Object.create(null);
 for (const propName of internals) {
   tjs2[kInternal][propName] = core10[propName];
