@@ -45,7 +45,7 @@ extern "C" {
 #define __js_printf_like(a, b)
 #endif
 
-#define JS_BOOL int
+typedef in16_t JS_BOOL;
 
 typedef struct JSRuntime JSRuntime;
 typedef struct JSContext JSContext;
