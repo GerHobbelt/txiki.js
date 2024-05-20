@@ -5,7 +5,7 @@ import path from 'tjs:path';
 const args = [
     tjs.exepath,
     'run',
-    path.join(import.meta.dirname, 'helpers', 'unhandled-rejection.js')
+    path.join(import.meta.dirname, 'helpers', 'timers.js')
 ];
 const proc = tjs.spawn(args, { stdout: 'ignore', stderr: 'pipe' });
 const buf = new Uint8Array(4096);

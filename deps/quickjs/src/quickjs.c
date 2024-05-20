@@ -2235,7 +2235,8 @@ static void js_free_modules(JSContext *ctx, JSFreeModuleEnum flag)
         JSModuleDef *m = list_entry(el, JSModuleDef, link);
         if (flag == JS_FREE_MODULE_ALL ||
             (flag == JS_FREE_MODULE_NOT_RESOLVED && !m->resolved) ||
-            (flag == JS_FREE_MODULE_NOT_EVALUATED && !m->evaluated)) {
+            (flag == JS_FREE_MODULE_NOT_EVALUATED && !m->evaluated
+                && !m->eval_mark)) {
             js_free_module_def(ctx, m);
         }
     }
@@ -6778,7 +6779,7 @@ static JSValue JS_ThrowReferenceErrorUninitialized2(JSContext *ctx,
     return JS_ThrowReferenceErrorUninitialized(ctx, atom);
 }
 
-static JSValue JS_ThrowTypeErrorInvalidClass(JSContext *ctx, int class_id)
+JSValue JS_ThrowTypeErrorInvalidClass(JSContext *ctx, JSClassID class_id)
 {
     JSRuntime *rt = ctx->rt;
     JSAtom name;
@@ -9828,6 +9829,18 @@ void *JS_GetOpaque2(JSContext *ctx, JSValueConst obj, JSClassID class_id)
         JS_ThrowTypeErrorInvalidClass(ctx, class_id);
     }
     return p;
+}
+
+void *JS_GetAnyOpaque(JSValueConst obj, JSClassID *class_id)
+{
+    JSObject *p;
+    if (JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT) {
+        *class_id = 0;
+        return NULL;
+    }
+    p = JS_VALUE_GET_OBJ(obj);
+    *class_id = p->class_id;
+    return p->u.opaque;
 }
 
 #define HINT_STRING  0
@@ -28375,6 +28388,7 @@ static JSValue js_evaluate_module(JSContext *ctx, JSModuleDef *m)
             ret_val = js_evaluate_module(ctx, m1);
             if (JS_IsException(ret_val)) {
                 m->eval_mark = FALSE;
+                js_free_modules(ctx, JS_FREE_MODULE_NOT_EVALUATED);
                 goto clean;
             }
             if (!JS_IsUndefined(ret_val)) {
