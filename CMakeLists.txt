@@ -12,14 +12,16 @@ endif()
 message(STATUS "Building in ${CMAKE_BUILD_TYPE} mode")
 message(STATUS "Building with ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION} on ${CMAKE_SYSTEM}")
 
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS ON)
+set(CMAKE_C_STANDARD 11)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -g")
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -ggdb -O0 -fno-omit-frame-pointer")
-
-message(STATUS "C flags:         ${CMAKE_C_FLAGS}")
-message(STATUS "C Debug flags:   ${CMAKE_C_FLAGS_DEBUG}")
-message(STATUS "C Release flags: ${CMAKE_C_FLAGS_RELEASE}")
+list(APPEND tjs_cflags -Wall -g)
+if (CMAKE_BUILD_TYPE MATCHES "Debug")
+    list(APPEND tjs_cflags -ggdb -O0 -fno-omit-frame-pointer)
+endif()
 
 set(TJS__VERSION_MAJOR 23)
 set(TJS__VERSION_MINOR 10)
@@ -89,7 +91,7 @@ add_executable(tjs
     src/bundles/c/core/core.c
     src/bundles/c/core/polyfills.c
     src/bundles/c/core/run-main.c
-    ../deps/quickjs/src/cutils.c
+    ../deps/quickjs/cutils.c
 )
 
 if(NOT MINGW)
@@ -137,19 +139,17 @@ set_target_properties(tjs PROPERTIES
 )
 
 string(TOLOWER ${CMAKE_SYSTEM_NAME} TJS_PLATFORM)
+target_compile_options(tjs PRIVATE ${tjs_cflags})
 target_compile_definitions(tjs PRIVATE TJS__PLATFORM="${TJS_PLATFORM}")
 target_include_directories(tjs PRIVATE ${CURL_INCLUDE_DIRS})
-target_link_libraries(tjs qjs uv_a m3 sqlite3 m ${CURL_LIBRARIES})
-if(MINGW)
-    target_link_libraries(tjs pthread)
-endif()
+target_link_libraries(tjs qjs uv_a m3 sqlite3 m pthread ${CURL_LIBRARIES})
 
 if (BUILD_WITH_ASAN)
     target_compile_options(tjs PRIVATE -fsanitize=address)
     target_link_options(tjs PRIVATE -fsanitize=address)
 endif()
 
-add_executable(qjsc EXCLUDE_FROM_ALL
+add_executable(tjsc EXCLUDE_FROM_ALL
     src/qjsc.c
 )
-target_link_libraries(qjsc qjs m)
+target_link_libraries(tjsc qjs m)
