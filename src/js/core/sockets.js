@@ -2,7 +2,7 @@
 
 import { readableStreamForHandle, writableStreamForHandle } from './stream-utils.js';
 
-const core = globalThis.__bootstrap;
+const core = globalThis[Symbol.for('tjs.internal.core')];
 
 
 export async function connect(transport, host, port, options = {}) {
@@ -182,8 +182,8 @@ class Connection {
         return this[kHandle].write(buf);
     }
 
-    setKeepAlive(enable = true) {
-        this[kHandle].setKeepAlive(enable);
+    setKeepAlive(enable, delay) {
+        this[kHandle].setKeepAlive(enable, delay);
     }
 
     setNoDelay(enable = true) {

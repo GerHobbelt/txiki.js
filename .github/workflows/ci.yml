@@ -7,26 +7,46 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: true
     - uses: actions/setup-node@v3
       with:
-        node-version: 16
+        node-version: 20
     - name: Install dependencies
       run: npm install
     - name: Run the linter
       run: npm run lint
+  codegen:
+    name: Codegen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: |
+          npm install
+          sudo apt update
+          sudo apt install -y libcurl4-openssl-dev
+      - name: Build it
+        run: |
+          make js
+      - name: Check if the git repository is clean
+        run: $(exit $(git status --porcelain --untracked-files=no | head -255 | wc -l)) || (echo "Dirty git tree"; git diff; exit 1)
   docs:
     name: Docs
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: true
     - uses: actions/setup-node@v3
       with:
-        node-version: 16
+        node-version: 20
     - name: Install dependencies
       run: npm install
     - name: Run the linter
@@ -45,12 +65,12 @@ jobs:
     env:
       BUILDTYPE: ${{ matrix.buildType }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: true
     - uses: actions/setup-node@v3
       with:
-        node-version: 16
+        node-version: 20
     - name: Dependencies
       env:
         ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
@@ -63,31 +83,32 @@ jobs:
           echo "::set-env name=CXX::clang++"
         fi
     - name: Build it
-      run: make
+      run: make VERBOSE=1
     - name: Test it
       run: make test
     - name: Test it (advanced)
       run: make test-advanced
   build-macos:
     name: macOS
-    runs-on: macOS-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         buildType: [Debug, Release]
+        os: [macOS-12, macOS-14]
     env:
       BUILDTYPE: ${{ matrix.buildType }}
     steps:
     - name: Install automake
-      run: brew install automake
-    - uses: actions/checkout@v3
+      run: brew install automake autoconf libtool texinfo
+    - uses: actions/checkout@v4
       with:
         submodules: true
     - uses: actions/setup-node@v3
       with:
-        node-version: 16
+        node-version: 20
     - name: Build it
-      run: make
+      run: make VERBOSE=1
     - name: Test it
       run: make test
     - name: Test it (advanced)
@@ -105,14 +126,14 @@ jobs:
     steps:
     - name: Prepare
       run: apk add git build-base cmake curl-dev autoconf automake libtool texinfo linux-headers --update-cache
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: true
     - uses: actions/setup-node@v3
       with:
-        node-version: 16
+        node-version: 20
     - name: Build it
-      run: make
+      run: make VERBOSE=1
     - name: Test it
       run: make test
   build-windows:
@@ -129,7 +150,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: true
     - name: Setup MSYS2
@@ -148,6 +169,6 @@ jobs:
           ninja:p
           libffi:p
     - name: Build it
-      run: make
+      run: make VERBOSE=1
     - name: Test it
       run: make test

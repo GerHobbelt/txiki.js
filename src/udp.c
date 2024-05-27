@@ -30,6 +30,7 @@
 
 typedef struct {
     JSContext *ctx;
+    JSRuntime *rt;
     int closed;
     int finalized;
     uv_udp_t udp;
@@ -56,7 +57,7 @@ static void uv__udp_close_cb(uv_handle_t *handle) {
     CHECK_NOT_NULL(u);
     u->closed = 1;
     if (u->finalized)
-        free(u);
+        js_free_rt(u->rt, u);
 }
 
 static void maybe_close(TJSUdp *u) {
@@ -71,13 +72,13 @@ static void tjs_udp_finalizer(JSRuntime *rt, JSValue val) {
         JS_FreeValueRT(rt, u->read.b.tarray);
         u->finalized = 1;
         if (u->closed)
-            free(u);
+            js_free_rt(rt, u);
         else
             maybe_close(u);
     }
 }
 
-static void tjs_udp_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+static void tjs_udp_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_func) {
     TJSUdp *u = JS_GetOpaque(val, tjs_udp_class_id);
     if (u) {
         TJS_MarkPromise(rt, &u->read.result, mark_func);
@@ -91,18 +92,18 @@ static JSClassDef tjs_udp_class = {
     .gc_mark = tjs_udp_mark,
 };
 
-static TJSUdp *tjs_udp_get(JSContext *ctx, JSValueConst obj) {
+static TJSUdp *tjs_udp_get(JSContext *ctx, JSValue obj) {
     return JS_GetOpaque2(ctx, obj, tjs_udp_class_id);
 }
 
-static JSValue tjs_udp_close(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_udp_close(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSUdp *u = tjs_udp_get(ctx, this_val);
     if (!u)
         return JS_EXCEPTION;
     if (TJS_IsPromisePending(ctx, &u->read.result)) {
         JSValue arg = JS_NewObjectProto(ctx, JS_NULL);
         JS_DefinePropertyValueStr(ctx, arg, "nread", JS_NULL, JS_PROP_C_W_E);
-        TJS_SettlePromise(ctx, &u->read.result, false, 1, (JSValueConst *) &arg);
+        TJS_SettlePromise(ctx, &u->read.result, false, 1, &arg);
         TJS_ClearPromise(ctx, &u->read.result);
     }
     maybe_close(u);
@@ -141,7 +142,7 @@ static void uv__udp_recv_cb(uv_udp_t *handle,
         JS_DefinePropertyValueStr(ctx, arg, "addr", addrobj, JS_PROP_C_W_E);
     }
 
-    TJS_SettlePromise(ctx, &u->read.result, is_reject, 1, (JSValueConst *) &arg);
+    TJS_SettlePromise(ctx, &u->read.result, is_reject, 1, &arg);
     TJS_ClearPromise(ctx, &u->read.result);
 
     JS_FreeValue(ctx, u->read.b.tarray);
@@ -150,7 +151,7 @@ static void uv__udp_recv_cb(uv_udp_t *handle,
     u->read.b.len = 0;
 }
 
-static JSValue tjs_udp_recv(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_udp_recv(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSUdp *u = tjs_udp_get(ctx, this_val);
     if (!u)
         return JS_EXCEPTION;
@@ -195,12 +196,12 @@ static void uv__udp_send_cb(uv_udp_send_t *req, int status) {
         arg = JS_UNDEFINED;
     }
 
-    TJS_SettlePromise(ctx, &sr->result, is_reject, 1, (JSValueConst *) &arg);
+    TJS_SettlePromise(ctx, &sr->result, is_reject, 1, &arg);
     JS_FreeValue(ctx, sr->tarray);
     js_free(ctx, sr);
 }
 
-static JSValue tjs_udp_send(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_udp_send(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSUdp *u = tjs_udp_get(ctx, this_val);
     if (!u)
         return JS_EXCEPTION;
@@ -255,7 +256,7 @@ static JSValue tjs_udp_send(JSContext *ctx, JSValueConst this_val, int argc, JSV
     return TJS_InitPromise(ctx, &sr->result);
 }
 
-static JSValue tjs_udp_fileno(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_udp_fileno(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSUdp *u = tjs_udp_get(ctx, this_val);
     if (!u)
         return JS_EXCEPTION;
@@ -282,7 +283,7 @@ static JSValue tjs_new_udp(JSContext *ctx, int af) {
     if (JS_IsException(obj))
         return obj;
 
-    u = calloc(1, sizeof(*u));
+    u = js_mallocz(ctx, sizeof(*u));
     if (!u) {
         JS_FreeValue(ctx, obj);
         return JS_EXCEPTION;
@@ -291,11 +292,12 @@ static JSValue tjs_new_udp(JSContext *ctx, int af) {
     r = uv_udp_init_ex(tjs_get_loop(ctx), &u->udp, af);
     if (r != 0) {
         JS_FreeValue(ctx, obj);
-        free(u);
+        js_free(ctx, u);
         return JS_ThrowInternalError(ctx, "couldn't initialize UDP handle");
     }
 
     u->ctx = ctx;
+    u->rt = JS_GetRuntime(ctx);
     u->closed = 0;
     u->finalized = 0;
 
@@ -311,14 +313,14 @@ static JSValue tjs_new_udp(JSContext *ctx, int af) {
     return obj;
 }
 
-static JSValue tjs_udp_constructor(JSContext *ctx, JSValueConst new_target, int argc, JSValueConst *argv) {
+static JSValue tjs_udp_constructor(JSContext *ctx, JSValue new_target, int argc, JSValue *argv) {
     int af = AF_UNSPEC;
     if (!JS_IsUndefined(argv[0]) && JS_ToInt32(ctx, &af, argv[0]))
         return JS_EXCEPTION;
     return tjs_new_udp(ctx, af);
 }
 
-static JSValue tjs_udp_getsockpeername(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic) {
+static JSValue tjs_udp_getsockpeername(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, int magic) {
     TJSUdp *u = tjs_udp_get(ctx, this_val);
     if (!u)
         return JS_EXCEPTION;
@@ -339,7 +341,7 @@ static JSValue tjs_udp_getsockpeername(JSContext *ctx, JSValueConst this_val, in
     return obj;
 }
 
-static JSValue tjs_udp_connect(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_udp_connect(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSUdp *u = tjs_udp_get(ctx, this_val);
     if (!u)
         return JS_EXCEPTION;
@@ -357,7 +359,7 @@ static JSValue tjs_udp_connect(JSContext *ctx, JSValueConst this_val, int argc, 
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_udp_bind(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_udp_bind(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSUdp *u = tjs_udp_get(ctx, this_val);
     if (!u)
         return JS_EXCEPTION;
@@ -397,11 +399,12 @@ static const JSCFunctionListEntry tjs_udp_funcs[] = {
 };
 
 void tjs__mod_udp_init(JSContext *ctx, JSValue ns) {
+    JSRuntime *rt = JS_GetRuntime(ctx);
     JSValue proto, obj;
 
     /* UDP class */
-    JS_NewClassID(&tjs_udp_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), tjs_udp_class_id, &tjs_udp_class);
+    JS_NewClassID(rt, &tjs_udp_class_id);
+    JS_NewClass(rt, tjs_udp_class_id, &tjs_udp_class);
     proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, tjs_udp_proto_funcs, countof(tjs_udp_proto_funcs));
     JS_SetClassProto(ctx, tjs_udp_class_id, proto);

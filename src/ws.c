@@ -50,11 +50,11 @@ static void tjs_ws_finalizer(JSRuntime *rt, JSValue val) {
         }
         for (int i = 0; i < WS_EVENT_MAX; i++)
             JS_FreeValueRT(rt, w->events[i]);
-        free(w);
+        js_free_rt(rt, w);
     }
 }
 
-static void tjs_ws_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+static void tjs_ws_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_func) {
     TJSWs *w = JS_GetOpaque(val, tjs_ws_class_id);
     if (w) {
         for (int i = 0; i < WS_EVENT_MAX; i++)
@@ -68,7 +68,7 @@ static JSClassDef tjs_ws_class = {
     .gc_mark = tjs_ws_mark,
 };
 
-static TJSWs *tjs_ws_get(JSContext *ctx, JSValueConst obj) {
+static TJSWs *tjs_ws_get(JSContext *ctx, JSValue obj) {
     return JS_GetOpaque2(ctx, obj, tjs_ws_class_id);
 }
 
@@ -81,7 +81,7 @@ static void maybe_emit_event(TJSWs *w, int event, JSValue arg) {
     }
 
     JSValue func = JS_DupValue(ctx, event_func);
-    JSValue ret = JS_Call(ctx, func, JS_UNDEFINED, 1, (JSValueConst *) &arg);
+    JSValue ret = JS_Call(ctx, func, JS_UNDEFINED, 1, &arg);
     if (JS_IsException(ret))
         tjs_dump_error(ctx);
 
@@ -135,12 +135,12 @@ static void cws__on_close(void *data,
     maybe_emit_event(w, WS_EVENT_CLOSE, event);
 }
 
-static JSValue tjs_ws_constructor(JSContext *ctx, JSValueConst new_target, int argc, JSValueConst *argv) {
+static JSValue tjs_ws_constructor(JSContext *ctx, JSValue new_target, int argc, JSValue *argv) {
     JSValue obj = JS_NewObjectClass(ctx, tjs_ws_class_id);
     if (JS_IsException(obj))
         return obj;
 
-    TJSWs *w = calloc(1, sizeof(*w));
+    TJSWs *w = js_mallocz(ctx, sizeof(*w));
     if (!w) {
         JS_FreeValue(ctx, obj);
         return JS_EXCEPTION;
@@ -175,14 +175,14 @@ static JSValue tjs_ws_constructor(JSContext *ctx, JSValueConst new_target, int a
     return obj;
 }
 
-static JSValue tjs_ws_event_get(JSContext *ctx, JSValueConst this_val, int magic) {
+static JSValue tjs_ws_event_get(JSContext *ctx, JSValue this_val, int magic) {
     TJSWs *w = tjs_ws_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
     return JS_DupValue(ctx, w->events[magic]);
 }
 
-static JSValue tjs_ws_event_set(JSContext *ctx, JSValueConst this_val, JSValueConst value, int magic) {
+static JSValue tjs_ws_event_set(JSContext *ctx, JSValue this_val, JSValue value, int magic) {
     TJSWs *w = tjs_ws_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
@@ -193,14 +193,14 @@ static JSValue tjs_ws_event_set(JSContext *ctx, JSValueConst this_val, JSValueCo
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_ws_readystate_get(JSContext *ctx, JSValueConst this_val) {
+static JSValue tjs_ws_readystate_get(JSContext *ctx, JSValue this_val) {
     TJSWs *w = tjs_ws_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
     return JS_NewInt32(ctx, w->ready_state);
 }
 
-static JSValue tjs_ws_close(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_ws_close(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSWs *w = tjs_ws_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
@@ -218,7 +218,7 @@ static JSValue tjs_ws_close(JSContext *ctx, JSValueConst this_val, int argc, JSV
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_ws_sendBinary(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_ws_sendBinary(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSWs *w = tjs_ws_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
@@ -243,7 +243,7 @@ static JSValue tjs_ws_sendBinary(JSContext *ctx, JSValueConst this_val, int argc
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_ws_sendText(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_ws_sendText(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSWs *w = tjs_ws_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
@@ -276,11 +276,12 @@ static const JSCFunctionListEntry tjs_ws_proto_funcs[] = {
 };
 
 void tjs__mod_ws_init(JSContext *ctx, JSValue ns) {
+    JSRuntime *rt = JS_GetRuntime(ctx);
     JSValue proto, obj;
 
     /* WebSocket class */
-    JS_NewClassID(&tjs_ws_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), tjs_ws_class_id, &tjs_ws_class);
+    JS_NewClassID(rt, &tjs_ws_class_id);
+    JS_NewClass(rt, tjs_ws_class_id, &tjs_ws_class);
     proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, tjs_ws_proto_funcs, countof(tjs_ws_proto_funcs));
     JS_SetClassProto(ctx, tjs_ws_class_id, proto);

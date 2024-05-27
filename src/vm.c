@@ -22,13 +22,75 @@
  * THE SOFTWARE.
  */
 
+#include "mem.h"
 #include "private.h"
 #include "tjs.h"
 
+#include <signal.h>
+#include <stdio.h>
 #include <string.h>
 
-
 #define TJS__DEFAULT_STACK_SIZE 1048576
+
+static void *tjs__mf_malloc(JSMallocState *s, size_t size) {
+    void *ptr;
+
+    /* Do not allocate zero bytes: behavior is platform dependent */
+    assert(size != 0);
+
+    if (unlikely(s->malloc_size + size > s->malloc_limit))
+        return NULL;
+
+    ptr = tjs__malloc(size);
+    if (!ptr)
+        return NULL;
+
+    s->malloc_count++;
+    s->malloc_size += tjs__malloc_usable_size(ptr);
+    return ptr;
+}
+
+static void tjs__mf_free(JSMallocState *s, void *ptr) {
+    if (!ptr)
+        return;
+
+    s->malloc_count--;
+    s->malloc_size -= tjs__malloc_usable_size(ptr);
+    tjs__free(ptr);
+}
+
+static void *tjs__mf_realloc(JSMallocState *s, void *ptr, size_t size) {
+    size_t old_size;
+
+    if (!ptr) {
+        if (size == 0)
+            return NULL;
+        return tjs__mf_malloc(s, size);
+    }
+    old_size = tjs__malloc_usable_size(ptr);
+    if (size == 0) {
+        s->malloc_count--;
+        s->malloc_size -= old_size;
+        tjs__free(ptr);
+        return NULL;
+    }
+    if (s->malloc_size + size - old_size > s->malloc_limit)
+        return NULL;
+
+    ptr = tjs__realloc(ptr, size);
+    if (!ptr)
+        return NULL;
+
+    s->malloc_size += tjs__malloc_usable_size(ptr) - old_size;
+    return ptr;
+}
+
+static const JSMallocFunctions tjs_mf = {
+    tjs__mf_malloc,
+    tjs__mf_free,
+    tjs__mf_realloc,
+    tjs__malloc_usable_size
+};
 
 /* core */
 extern const uint8_t tjs__core[];
@@ -75,8 +137,8 @@ JSValue tjs__get_args(JSContext *ctx) {
 }
 
 static void tjs__promise_rejection_tracker(JSContext *ctx,
-                                           JSValueConst promise,
-                                           JSValueConst reason,
+                                           JSValue promise,
+                                           JSValue reason,
                                            BOOL is_handled,
                                            void *opaque) {
     if (!is_handled) {
@@ -86,7 +148,7 @@ static void tjs__promise_rejection_tracker(JSContext *ctx,
         CHECK_EQ(JS_IsUndefined(event_ctor), 0);
 
         JSValue event_name = JS_NewString(ctx, "unhandledrejection");
-        JSValueConst args[3];
+        JSValue args[3];
         args[0] = event_name;
         args[1] = promise;
         args[2] = reason;
@@ -157,11 +219,11 @@ TJSRuntime *TJS_NewRuntimeWorker(void) {
 }
 
 TJSRuntime *TJS_NewRuntimeInternal(bool is_worker, TJSRunOptions *options) {
-    TJSRuntime *qrt = calloc(1, sizeof(*qrt));
+    TJSRuntime *qrt = tjs__calloc(1, sizeof(*qrt));
 
     memcpy(&qrt->options, options, sizeof(*options));
 
-    qrt->rt = JS_NewRuntime();
+    qrt->rt = JS_NewRuntime2(&tjs_mf, NULL);
     CHECK_NOT_NULL(qrt->rt);
 
     qrt->ctx = JS_NewContext(qrt->rt);
@@ -204,31 +266,29 @@ TJSRuntime *TJS_NewRuntimeInternal(bool is_worker, TJSRunOptions *options) {
 
     /* start bootstrap */
     JSValue global_obj = JS_GetGlobalObject(qrt->ctx);
-    JSAtom bootstrap_ns_atom = JS_NewAtom(qrt->ctx, "__bootstrap");
-    JSValue bootstrap_ns = JS_NewObjectProto(qrt->ctx, JS_NULL);
-    JS_DupValue(qrt->ctx, bootstrap_ns);  // JS_SetProperty frees the value.
-    JS_SetProperty(qrt->ctx, global_obj, bootstrap_ns_atom, bootstrap_ns);
+    JSValue core_sym = JS_NewSymbol(qrt->ctx, "tjs.internal.core", TRUE);
+    JSAtom core_atom = JS_ValueToAtom(qrt->ctx, core_sym);
+    JSValue core = JS_NewObjectProto(qrt->ctx, JS_NULL);
 
-    tjs__bootstrap_core(qrt->ctx, bootstrap_ns);
+    CHECK_EQ(JS_DefinePropertyValue(qrt->ctx, global_obj, core_atom, core, JS_PROP_C_W_E), TRUE);
+    CHECK_EQ(JS_DefinePropertyValueStr(qrt->ctx, core, "isWorker", JS_NewBool(qrt->ctx, is_worker), JS_PROP_C_W_E), TRUE);
+
+    tjs__bootstrap_core(qrt->ctx, core);
 
     CHECK_EQ(tjs__eval_bytecode(qrt->ctx, tjs__polyfills, tjs__polyfills_size), 0);
     CHECK_EQ(tjs__eval_bytecode(qrt->ctx, tjs__core, tjs__core_size), 0);
 
     /* end bootstrap */
-    JS_DeleteProperty(qrt->ctx, global_obj, bootstrap_ns_atom, 0);
-    JS_FreeAtom(qrt->ctx, bootstrap_ns_atom);
-    JS_FreeValue(qrt->ctx, bootstrap_ns);
+    JS_FreeAtom(qrt->ctx, core_atom);
+    JS_FreeValue(qrt->ctx, core_sym);
+    JS_FreeValue(qrt->ctx, global_obj);
 
     /* WASM */
     qrt->wasm_ctx.env = m3_NewEnvironment();
 
-    /* Load some builtin references for easy access */
-    qrt->builtins.date_ctor = JS_GetPropertyStr(qrt->ctx, global_obj, "Date");
-    CHECK_EQ(JS_IsUndefined(qrt->builtins.date_ctor), 0);
-    qrt->builtins.u8array_ctor = JS_GetPropertyStr(qrt->ctx, global_obj, "Uint8Array");
-    CHECK_EQ(JS_IsUndefined(qrt->builtins.u8array_ctor), 0);
-
-    JS_FreeValue(qrt->ctx, global_obj);
+    /* Timers */
+    qrt->timers.timers = NULL;
+    qrt->timers.next_timer = 1;
 
     return qrt;
 }
@@ -236,26 +296,26 @@ TJSRuntime *TJS_NewRuntimeInternal(bool is_worker, TJSRunOptions *options) {
 void TJS_FreeRuntime(TJSRuntime *qrt) {
     JS_RunGC(qrt->rt);
 
-    /* Close all loop handles. */
+    /* Close all core loop handles. */
     uv_close((uv_handle_t *) &qrt->jobs.prepare, NULL);
     uv_close((uv_handle_t *) &qrt->jobs.idle, NULL);
     uv_close((uv_handle_t *) &qrt->jobs.check, NULL);
     uv_close((uv_handle_t *) &qrt->stop, NULL);
-
-    JS_FreeValue(qrt->ctx, qrt->builtins.date_ctor);
-    JS_FreeValue(qrt->ctx, qrt->builtins.u8array_ctor);
-
-    JS_FreeContext(qrt->ctx);
-    JS_FreeRuntime(qrt->rt);
-
-    /* Destroy CURLM handle. */
     if (qrt->curl_ctx.curlm_h) {
-        curl_multi_cleanup(qrt->curl_ctx.curlm_h);
         uv_close((uv_handle_t *) &qrt->curl_ctx.timer, NULL);
     }
 
+    /* Destroy all timers */
+    tjs__destroy_timers(qrt);
+
     /* Destroy WASM runtime. */
     m3_FreeEnvironment(qrt->wasm_ctx.env);
+    qrt->wasm_ctx.env = NULL;
+
+    /* Give close handles a chance to run. */
+    for (int i = 0; i < 5; i++) {
+        uv_run(&qrt->loop, UV_RUN_NOWAIT);
+    }
 
     uv_walk(&qrt->loop, uv__walk, NULL);
 
@@ -276,14 +336,32 @@ void TJS_FreeRuntime(TJSRuntime *qrt) {
     (void)closed;
 #endif
 
-    free(qrt);
+    /* Destroy CURLM handle. */
+    if (qrt->curl_ctx.curlm_h) {
+        curl_multi_cleanup(qrt->curl_ctx.curlm_h);
+        qrt->curl_ctx.curlm_h = NULL;
+    }
+
+    JS_FreeContext(qrt->ctx);
+    JS_FreeRuntime(qrt->rt);
+
+    tjs__free(qrt);
 }
 
-void TJS_SetupArgs(int argc, char **argv) {
+void TJS_Initialize(int argc, char **argv) {
+    curl_global_init(CURL_GLOBAL_ALL);
+
+    CHECK_EQ(0, uv_replace_allocator(tjs__malloc, tjs__realloc, tjs__calloc, tjs__free));
+
     tjs__argc = argc;
     tjs__argv = uv_setup_args(argc, argv);
-    if (!tjs__argv)
-        tjs__argv = argv;
+
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
+#ifdef SIGPIPE
+    signal(SIGPIPE, SIG_IGN);
+#endif
 }
 
 JSContext *TJS_GetJSContext(TJSRuntime *qrt) {
@@ -312,7 +390,7 @@ static void uv__prepare_cb(uv_prepare_t *handle) {
     uv__maybe_idle(qrt);
 }
 
-void tjs_execute_jobs(JSContext *ctx) {
+void tjs__execute_jobs(JSContext *ctx) {
     JSContext *ctx1;
     int err;
 
@@ -331,7 +409,7 @@ static void uv__check_cb(uv_check_t *handle) {
     TJSRuntime *qrt = handle->data;
     CHECK_NOT_NULL(qrt);
 
-    tjs_execute_jobs(qrt->ctx);
+    tjs__execute_jobs(qrt->ctx);
 
     uv__maybe_idle(qrt);
 }
@@ -356,9 +434,11 @@ int TJS_Run(TJSRuntime *qrt) {
     if (ret != 0)
         return ret;
 
-    uv__maybe_idle(qrt);
-
-    uv_run(&qrt->loop, UV_RUN_DEFAULT);
+    int r;
+    do {
+        uv__maybe_idle(qrt);
+        r = uv_run(&qrt->loop, UV_RUN_DEFAULT);
+    } while (r == 0 && JS_IsJobPending(qrt->rt));
 
     JSValue exc = JS_GetException(qrt->ctx);
     if (!JS_IsNull(exc)) {
@@ -418,7 +498,7 @@ JSValue TJS_EvalModule(JSContext *ctx, const char *filename, bool is_main) {
     int r;
     JSValue ret;
 
-    dbuf_init(&dbuf);
+    tjs_dbuf_init(ctx, &dbuf);
     r = tjs__load_file(ctx, &dbuf, filename);
     if (r != 0) {
         dbuf_free(&dbuf);

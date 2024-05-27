@@ -29,12 +29,11 @@
 #include "utils.h"
 
 #include <quickjs.h>
-#include <stdbool.h>
 
 typedef struct TJSRuntime TJSRuntime;
 
 typedef struct TJSRunOptions {
-    size_t mem_limit;
+    int mem_limit;
     size_t stack_size;
 } TJSRunOptions;
 
@@ -42,7 +41,7 @@ void TJS_DefaultOptions(TJSRunOptions *options);
 TJSRuntime *TJS_NewRuntime(void);
 TJSRuntime *TJS_NewRuntimeOptions(TJSRunOptions *options);
 void TJS_FreeRuntime(TJSRuntime *qrt);
-void TJS_SetupArgs(int argc, char **argv);
+void TJS_Initialize(int argc, char **argv);
 JSContext *TJS_GetJSContext(TJSRuntime *qrt);
 TJSRuntime *TJS_GetRuntime(JSContext *ctx);
 int TJS_Run(TJSRuntime *qrt);

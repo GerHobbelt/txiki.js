@@ -1,13 +1,13 @@
-const core = globalThis.__bootstrap;
+const core = globalThis[Symbol.for('tjs.internal.core')];
 
 import { alert, confirm, prompt } from './alert-confirm-prompt.js';
+import env from './env.js';
 import { open, mkdir, mkstemp, rm } from './fs.js';
 import pathModule from './path.js';
 import { PosixSocket } from './posix-socket.js';
-import { signal } from './signal.js';
+import { addSignalListener, removeSignalListener } from './signal.js';
 import { connect, listen } from './sockets.js';
 import { createStdin, createStdout, createStderr } from './stdio.js';
-import { bootstrapWorker } from './worker-bootstrap.js';
 
 
 // The "tjs" global.
@@ -30,12 +30,10 @@ const noExport = [
     'XMLHttpRequest',
     'clearInterval',
     'clearTimeout',
-    'environ',
     'evalFile',
     'evalScript',
-    'ffi',
+    'ffi_load_native',
     'guessHandle',
-    'hrtimeMs',
     'isStdinTty',
     'mkdir',
     'mkstemp',
@@ -92,13 +90,6 @@ Object.defineProperty(tjs, 'prompt', {
 });
 
 // Getters.
-Object.defineProperty(tjs, 'environ', {
-    enumerable: true,
-    configurable: false,
-    get() {
-        return core.environ();
-    }
-});
 Object.defineProperty(tjs, 'pid', {
     enumerable: true,
     configurable: false,
@@ -112,6 +103,14 @@ Object.defineProperty(tjs, 'ppid', {
     get() {
         return core.getPpid();
     }
+});
+
+// Environment.
+Object.defineProperty(tjs, 'env', {
+    enumerable: true,
+    configurable: false,
+    writable: false,
+    value: env
 });
 
 // FS.
@@ -141,12 +140,20 @@ Object.defineProperty(tjs, 'rm', {
 });
 
 // Signals.
-Object.defineProperty(tjs, 'signal', {
-    enumerable: true,
-    configurable: false,
-    writable: false,
-    value: signal
-});
+if (!core.isWorker) {
+    Object.defineProperty(tjs, 'addSignalListener', {
+        enumerable: true,
+        configurable: false,
+        writable: false,
+        value: addSignalListener
+    });
+    Object.defineProperty(tjs, 'removeSignalListener', {
+        enumerable: true,
+        configurable: false,
+        writable: false,
+        value: removeSignalListener
+    });
+}
 
 // Sockets.
 Object.defineProperty(tjs, 'connect', {
@@ -193,12 +200,7 @@ if (core.posix_socket) {
 }
 
 // Internal stuff needed by the runtime.
-const kInternal = Symbol.for('tjs.internal');
-
-tjs[kInternal] = Object.create(null);
-tjs[kInternal]['bootstrapWorker'] = bootstrapWorker;
-tjs[kInternal]['core'] = core;
-tjs[kInternal]['pathModule'] = pathModule;
+globalThis[Symbol.for('tjs.internal.modules.path')] = pathModule;
 
 // tjs global.
 Object.defineProperty(globalThis, 'tjs', {

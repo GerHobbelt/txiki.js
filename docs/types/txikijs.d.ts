@@ -68,35 +68,34 @@ declare global {
         | 'SIGPOLL' | 'SIGPWR' | 'SIGSYS';
         
         /**
-        * Signal handler function.
+        * Signal listener function.
         */
-        type SignalHandlerFunction = () => void;
-        
-        interface SignalHandler {
-            /**
-            * The signal that this signal handler was registered for.
-            */
-            signal: Signal;
-            
-            /**
-            * Stop the signal handler. The registered signal handler function
-            * will no longer be called.
-            */
-            close(): void;
-        }
-        
+        type SignalListener = () => void;
+
         /**
-        * Registers a handler for the given signal.
+        * Registers a listener for the given signal.
         *
         * ```js
-        * const h = tjs.signal('SIGINT', handleSigint);
+        * tjs.addSignalListener('SIGINT', handleSigint);
         * ```
         *
-        * @param sig Which signal to register a handler for.
-        * @param handler Handler function.
+        * @param sig Which signal to register a listener for.
+        * @param listener Listener function.
         */
-        function signal(sig: Signal, handler: SignalHandlerFunction): SignalHandler;
-        
+        function addSignalListener(sig: Signal, listener: SignalListener): void;
+
+        /**
+        * Un-registers a listener for the given signal.
+        *
+        * ```js
+        * tjs.removeSignalListener('SIGINT', handleSigint);
+        * ```
+        *
+        * @param sig Which signal to un-register a listener for.
+        * @param listener Listener function.
+        */
+        function removeSignalListener(sig: Signal, listener: SignalListener): void;
+
         /**
         * Send a signal to a process.
         *
@@ -133,40 +132,20 @@ declare global {
         
         /**
         * Object containing environment variables.
+        * Setting and deleting properties on this object causes
+        * environment variables to be set / deleted.
         */
         type Environment = { [index: string]: string };
         
         /**
         * System environment variables.
         */
-        const environ: Environment;
+        const env: Environment;
         
         /**
         * Returns the current system hostname.
         */
         function gethostname(): string;
-        
-        /**
-        * Gets the environment variable of the given name.
-        *
-        * @param name Name of the environment variable to get.
-        */
-        function getenv(name: string): string;
-        
-        /**
-        * Sets the given environment variable to the given value.
-        *
-        * @param name Name of the environment variable to be set.
-        * @param value Value to be set to.
-        */
-        function setenv(name: string, value: string): void;
-        
-        /**
-        * Unsets the given environment variable.
-        *
-        * @param name Name of the environment variable to unset.
-        */
-        function unsetenv(name: string): void;
         
         /**
         * String representation of the current platform.
@@ -848,7 +827,7 @@ declare global {
         interface Connection {
             read(buf: Uint8Array): Promise<number|null>;
             write(buf: Uint8Array): Promise<number>;
-            setKeepAlive(enable?: boolean): void;
+            setKeepAlive(enable: boolean, delay: number): void;
             setNoDelay(enable?: boolean): void;
             shutdown(): void;
             close(): void;
@@ -1055,6 +1034,49 @@ declare global {
             static checksum(buf: Uint8Array): number;
         }
     }
+
+    interface ConsolePrinterOptions {
+        /** output message to stderr instead of stdout */
+        isWarn?: boolean;
+
+        /** how much to indent the message (level of groups) */
+        indent: number;
+    }
+
+    /**
+    * Returns an estimate of the default amount of parallelism a program should use.
+    */
+    function createConsole(opts: {
+        /** function to print messages to somewhere, see https://console.spec.whatwg.org/#printer */
+        printer: (logLevel: string, args: any[], options: ConsolePrinterOptions) => void,
+        /** function to handle normal log messages, see https://console.spec.whatwg.org/#logger */
+        logger?: (logLevel: string, args: any[], options: ConsolePrinterOptions) => void,
+        /** function to clear the console, e.g. send the ASCII ctrl character */
+        clearConsole?: () => void,
+        /** format given values, either by using a format string as first param or otherwise display values in a well readable format, see https://console.spec.whatwg.org/#formatter */
+        formatter?: (args: any[]) => string,
+        /** format js values to be well readable */
+        inspect?: (args: any[]) => string,
+    }): typeof console;
+
+    /**
+     * format any js value to be well readable
+     * @returns resulting string
+     */
+    function inspect(value: any, options?: { depth?: number, colors?: boolean, showHidden?: boolean }): string;
+
+    /**
+     * print format string and insert given values, see https://console.spec.whatwg.org/#formatter
+     * leftover values are appended to the end
+     * @returns resulting string
+     */
+    function format(format: string, ...args: any[]): string;
+
+    /**
+     * format given values to a well readable string 
+     * @returns resulting string
+     */
+    function format(...values: any[]): string;
 }
 
 export {};

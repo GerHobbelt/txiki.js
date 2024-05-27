@@ -26,8 +26,9 @@
 #include "utils.h"
 
 typedef struct {
-    uv_fs_event_t handle;
     JSContext *ctx;
+    JSRuntime *rt;
+    uv_fs_event_t handle;
     JSValue callback;
     int closed;
     int finalized;
@@ -35,7 +36,7 @@ typedef struct {
 
 static JSClassID tjs_fswatch_class_id;
 
-static TJSFsWatch *tjs_fswatch_get(JSValueConst obj) {
+static TJSFsWatch *tjs_fswatch_get(JSValue obj) {
     return JS_GetOpaque(obj, tjs_fswatch_class_id);
 }
 
@@ -44,7 +45,7 @@ static void uv__fsevent_close_cb(uv_handle_t *handle) {
     if (fw) {
         fw->closed = 1;
         if (fw->finalized)
-            free(fw);
+            js_free_rt(fw->rt, fw);
     }
 }
 
@@ -59,13 +60,13 @@ static void tjs_fswatch_finalizer(JSRuntime *rt, JSValue val) {
         JS_FreeValueRT(rt, fw->callback);
         fw->finalized = 1;
         if (fw->closed)
-            free(fw);
+            js_free_rt(rt, fw);
         else
             maybe_close(fw);
     }
 }
 
-static void tjs_fswatch_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+static void tjs_fswatch_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_func) {
     TJSFsWatch *fw = tjs_fswatch_get(val);
     if (fw) {
         JS_MarkValue(rt, fw->callback, mark_func);
@@ -78,7 +79,7 @@ static JSClassDef tjs_fswatch_class = {
     .gc_mark = tjs_fswatch_mark,
 };
 
-static JSValue tjs_fswatch_close(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_fswatch_close(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSFsWatch *fw = tjs_fswatch_get(this_val);
     if (!fw)
         return JS_EXCEPTION;
@@ -86,7 +87,7 @@ static JSValue tjs_fswatch_close(JSContext *ctx, JSValueConst this_val, int argc
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_fswatch_path_get(JSContext *ctx, JSValueConst this_val) {
+static JSValue tjs_fswatch_path_get(JSContext *ctx, JSValue this_val) {
     TJSFsWatch *fw = tjs_fswatch_get(this_val);
     if (!fw)
         return JS_UNDEFINED;
@@ -151,7 +152,7 @@ static void uv__fs_event_cb(uv_fs_event_t *handle, const char *filename, int eve
     JS_FreeValue(ctx, args[1]);
 }
 
-static JSValue tjs_fs_watch(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_fs_watch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     const char *path = JS_ToCString(ctx, argv[0]);
     if (!path)
         return JS_EXCEPTION;
@@ -167,7 +168,7 @@ static JSValue tjs_fs_watch(JSContext *ctx, JSValueConst this_val, int argc, JSV
         return JS_EXCEPTION;
     }
 
-    TJSFsWatch *fw = calloc(1, sizeof(*fw));
+    TJSFsWatch *fw = js_mallocz(ctx, sizeof(*fw));
     if (!fw) {
         JS_FreeCString(ctx, path);
         JS_FreeValue(ctx, obj);
@@ -178,7 +179,7 @@ static JSValue tjs_fs_watch(JSContext *ctx, JSValueConst this_val, int argc, JSV
     if (r != 0) {
         JS_FreeCString(ctx, path);
         JS_FreeValue(ctx, obj);
-        free(fw);
+        js_free(ctx, fw);
         return JS_ThrowInternalError(ctx, "couldn't initialize handle");
     }
 
@@ -186,13 +187,14 @@ static JSValue tjs_fs_watch(JSContext *ctx, JSValueConst this_val, int argc, JSV
     if (r != 0) {
         JS_FreeCString(ctx, path);
         JS_FreeValue(ctx, obj);
-        free(fw);
+        js_free(ctx, fw);
         return tjs_throw_errno(ctx, r);
     }
 
     JS_FreeCString(ctx, path);
 
     fw->ctx = ctx;
+    fw->rt = JS_GetRuntime(ctx);
     fw->handle.data = fw;
     fw->callback = JS_DupValue(ctx, argv[1]);
 
@@ -211,8 +213,10 @@ static const JSCFunctionListEntry tjs_fswatch_funcs[] = {
 };
 
 void tjs__mod_fswatch_init(JSContext *ctx, JSValue ns) {
-    JS_NewClassID(&tjs_fswatch_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), tjs_fswatch_class_id, &tjs_fswatch_class);
+    JSRuntime *rt = JS_GetRuntime(ctx);
+
+    JS_NewClassID(rt, &tjs_fswatch_class_id);
+    JS_NewClass(rt, tjs_fswatch_class_id, &tjs_fswatch_class);
     JSValue proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, tjs_fswatch_proto_funcs, countof(tjs_fswatch_proto_funcs));
     JS_SetClassProto(ctx, tjs_fswatch_class_id, proto);

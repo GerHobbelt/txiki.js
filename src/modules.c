@@ -34,7 +34,7 @@ JSModuleDef *tjs__load_http(JSContext *ctx, const char *url) {
     JSModuleDef *m;
     DynBuf dbuf;
 
-    dbuf_init(&dbuf);
+    tjs_dbuf_init(ctx, &dbuf);
 
     int r = tjs_curl_load_http(&dbuf, url);
     if (r != 200) {
@@ -91,7 +91,7 @@ JSModuleDef *tjs_module_loader(JSContext *ctx, const char *module_name, void *op
         return tjs__load_http(ctx, module_name);
     }
 
-    dbuf_init(&dbuf);
+    tjs_dbuf_init(ctx, &dbuf);
 
     is_json = has_suffix(module_name, ".json");
 
@@ -139,7 +139,7 @@ JSModuleDef *tjs_module_loader(JSContext *ctx, const char *module_name, void *op
 #define TJS__PATHSEP_STR "/"
 #endif
 
-int js_module_set_import_meta(JSContext *ctx, JSValueConst func_val, JS_BOOL use_realpath, JS_BOOL is_main) {
+int js_module_set_import_meta(JSContext *ctx, JSValue func_val, JS_BOOL use_realpath, JS_BOOL is_main) {
     JSModuleDef *m;
     char buf[PATH_MAX + 16] = { 0 };
     int r;

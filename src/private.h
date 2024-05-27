@@ -34,6 +34,7 @@
 #include <stdbool.h>
 #include <uv.h>
 
+typedef struct TJSTimer TJSTimer;
 
 struct TJSRuntime {
     TJSRunOptions options;
@@ -55,9 +56,9 @@ struct TJSRuntime {
         IM3Environment env;
     } wasm_ctx;
     struct {
-        JSValue date_ctor;
-        JSValue u8array_ctor;
-    } builtins;
+        TJSTimer *timers;
+        int64_t next_timer;
+    } timers;
 };
 
 void tjs__mod_dns_init(JSContext *ctx, JSValue ns);
@@ -86,21 +87,21 @@ JSValue tjs_new_error(JSContext *ctx, int err);
 JSValue tjs_throw_errno(JSContext *ctx, int err);
 
 JSValue tjs_new_pipe(JSContext *ctx);
-uv_stream_t *tjs_pipe_get_stream(JSContext *ctx, JSValueConst obj);
+uv_stream_t *tjs_pipe_get_stream(JSContext *ctx, JSValue obj);
 
-void tjs_execute_jobs(JSContext *ctx);
-
+void tjs__execute_jobs(JSContext *ctx);
 JSModuleDef *tjs__load_builtin(JSContext *ctx, const char *name);
 int tjs__load_file(JSContext *ctx, DynBuf *dbuf, const char *filename);
 JSModuleDef *tjs_module_loader(JSContext *ctx, const char *module_name, void *opaque);
 char *tjs_module_normalizer(JSContext *ctx, const char *base_name, const char *name, void *opaque);
 
-JSModuleDef *js_init_module_std(JSContext *ctx, const char *module_name);
-int js_module_set_import_meta(JSContext *ctx, JSValueConst func_val, JS_BOOL use_realpath, JS_BOOL is_main);
+int js_module_set_import_meta(JSContext *ctx, JSValue func_val, JS_BOOL use_realpath, JS_BOOL is_main);
 
 JSValue tjs__get_args(JSContext *ctx);
 
 int tjs__eval_bytecode(JSContext *ctx, const uint8_t *buf, size_t buf_len);
+
+void tjs__destroy_timers(TJSRuntime *qrt);
 
 uv_loop_t *TJS_GetLoop(TJSRuntime *qrt);
 TJSRuntime *TJS_NewRuntimeWorker(void);

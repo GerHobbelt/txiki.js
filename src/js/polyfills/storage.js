@@ -1,6 +1,6 @@
 /* global tjs */
 
-const core = globalThis.__bootstrap;
+const core = globalThis[Symbol.for('tjs.internal.core')];
 const sqlite3 = core._sqlite3;
 
 const kStorageMap = Symbol('kStorageMap');
@@ -88,9 +88,9 @@ const kStorageDb = Symbol('kStorageDb');
 
 
 function initDb() {
-    const { pathModule: path } = tjs[Symbol.for('tjs.internal')];
+    const path = globalThis[Symbol.for('tjs.internal.modules.path')];
 
-    const TJS_HOME = tjs.environ.TJS_HOME ?? path.join(tjs.homedir(), '.tjs');
+    const TJS_HOME = tjs.env.TJS_HOME ?? path.join(tjs.homedir(), '.tjs');
     const localStorageDb = path.join(TJS_HOME, 'localStorage.sqlite');
     const flags = sqlite3.SQLITE_OPEN_CREATE | sqlite3.SQLITE_OPEN_READWRITE;
 
@@ -217,7 +217,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 });
 
 function mkdirSync(path, options = { mode: 0o777, recursive: false }) {
-    const { pathModule } = tjs[Symbol.for('tjs.internal')];
+    const pathModule = globalThis[Symbol.for('tjs.internal.modules.path')];
 
     if (!options.recursive) {
         return core._mkdirSync(path, options.mode);

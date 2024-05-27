@@ -28,6 +28,7 @@
 
 typedef struct {
     JSContext *ctx;
+    JSRuntime *rt;
     int closed;
     int finalized;
     uv_signal_t handle;
@@ -43,7 +44,7 @@ static void uv__signal_close_cb(uv_handle_t *handle) {
     if (sh) {
         sh->closed = 1;
         if (sh->finalized)
-            free(sh);
+            js_free_rt(sh->rt, sh);
     }
 }
 
@@ -58,13 +59,13 @@ static void tjs_signal_handler_finalizer(JSRuntime *rt, JSValue val) {
         JS_FreeValueRT(rt, sh->func);
         sh->finalized = 1;
         if (sh->closed)
-            free(sh);
+            js_free_rt(rt, sh);
         else
             maybe_close(sh);
     }
 }
 
-static void tjs_signal_handler_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+static void tjs_signal_handler_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_func) {
     TJSSignalHandler *sh = JS_GetOpaque(val, tjs_signal_handler_class_id);
     if (sh) {
         JS_MarkValue(rt, sh->func, mark_func);
@@ -83,12 +84,12 @@ static void uv__signal_cb(uv_signal_t *handle, int sig_num) {
     tjs_call_handler(sh->ctx, sh->func, 0, NULL);
 }
 
-static JSValue tjs_signal(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_signal(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     int32_t sig_num;
     if (JS_ToInt32(ctx, &sig_num, argv[0]))
         return JS_EXCEPTION;
 
-    JSValueConst func = argv[1];
+    JSValue func = argv[1];
     if (!JS_IsFunction(ctx, func))
         return JS_ThrowTypeError(ctx, "not a function");
 
@@ -96,7 +97,7 @@ static JSValue tjs_signal(JSContext *ctx, JSValueConst this_val, int argc, JSVal
     if (JS_IsException(obj))
         return obj;
 
-    TJSSignalHandler *sh = calloc(1, sizeof(*sh));
+    TJSSignalHandler *sh = js_mallocz(ctx, sizeof(*sh));
     if (!sh) {
         JS_FreeValue(ctx, obj);
         return JS_EXCEPTION;
@@ -105,19 +106,20 @@ static JSValue tjs_signal(JSContext *ctx, JSValueConst this_val, int argc, JSVal
     int r = uv_signal_init(tjs_get_loop(ctx), &sh->handle);
     if (r != 0) {
         JS_FreeValue(ctx, obj);
-        free(sh);
+        js_free(ctx, sh);
         return JS_ThrowInternalError(ctx, "couldn't initialize Signal handle");
     }
 
     r = uv_signal_start(&sh->handle, uv__signal_cb, sig_num);
     if (r != 0) {
         JS_FreeValue(ctx, obj);
-        free(sh);
+        js_free(ctx, sh);
         return tjs_throw_errno(ctx, r);
     }
     uv_unref((uv_handle_t *) &sh->handle);
 
     sh->ctx = ctx;
+    sh->rt = JS_GetRuntime(ctx);
     sh->sig_num = sig_num;
     sh->handle.data = sh;
     sh->func = JS_DupValue(ctx, func);
@@ -126,11 +128,11 @@ static JSValue tjs_signal(JSContext *ctx, JSValueConst this_val, int argc, JSVal
     return obj;
 }
 
-static TJSSignalHandler *tjs_signal_handler_get(JSContext *ctx, JSValueConst obj) {
+static TJSSignalHandler *tjs_signal_handler_get(JSContext *ctx, JSValue obj) {
     return JS_GetOpaque2(ctx, obj, tjs_signal_handler_class_id);
 }
 
-static JSValue tjs_signal_handler_close(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_signal_handler_close(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSSignalHandler *sh = tjs_signal_handler_get(ctx, this_val);
     if (!sh)
         return JS_EXCEPTION;
@@ -138,7 +140,7 @@ static JSValue tjs_signal_handler_close(JSContext *ctx, JSValueConst this_val, i
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_signal_handler_signal_get(JSContext *ctx, JSValueConst this_val) {
+static JSValue tjs_signal_handler_signal_get(JSContext *ctx, JSValue this_val) {
     TJSSignalHandler *sh = tjs_signal_handler_get(ctx, this_val);
     if (!sh)
         return JS_EXCEPTION;
@@ -156,8 +158,10 @@ static const JSCFunctionListEntry tjs_signal_funcs[] = {
 };
 
 void tjs__mod_signals_init(JSContext *ctx, JSValue ns) {
-    JS_NewClassID(&tjs_signal_handler_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), tjs_signal_handler_class_id, &tjs_signal_handler_class);
+    JSRuntime *rt = JS_GetRuntime(ctx);
+
+    JS_NewClassID(rt, &tjs_signal_handler_class_id);
+    JS_NewClass(rt, tjs_signal_handler_class_id, &tjs_signal_handler_class);
     JSValue proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, tjs_signal_handler_proto_funcs, countof(tjs_signal_handler_proto_funcs));
     JS_SetClassProto(ctx, tjs_signal_handler_class_id, proto);

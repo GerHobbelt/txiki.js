@@ -57,16 +57,16 @@ function _run(g) {
 
     var styles = {
         'default':    'bright_green',
-        'comment':    'white',
+        'comment':    'grey',
         'string':     'bright_cyan',
         'regex':      'cyan',
         'number':     'green',
-        'keyword':    'bright_white',
+        'keyword':    'bright_magenta',
         'function':   'bright_yellow',
-        'type':       'bright_magenta',
+        'type':       'grey',
         'identifier': 'bright_green',
         'error':      'red',
-        'result':     'bright_white',
+        'result':     'grey',
         'error_msg':  'bright_red',
     };
 
@@ -98,9 +98,7 @@ function _run(g) {
     /* current X position of the cursor in the terminal */
     var term_cursor_x = 0;
 
-    var sigint_h;
-
-    var { evalScript } = tjs[Symbol.for('tjs.internal')].core;
+    var { evalScript } = globalThis[Symbol.for('tjs.internal.core')];
 
     var encoder = new TextEncoder();
 
@@ -120,7 +118,7 @@ function _run(g) {
         tjs.stdin.setRawMode(true);
 
         /* install a Ctrl-C signal handler */
-        sigint_h = tjs.signal('SIGINT', sigint_handler);
+        tjs.addSignalListener('SIGINT', sigint_handler);
 
         /* handler to read stdin */
         term_read_handler();
@@ -948,11 +946,7 @@ function _run(g) {
 
         if (!isFinite(a)) {
             /* NaN, Infinite */
-            if (typeof a === 'bigfloat') {
-                return 'BigFloat(' + a.toString() + ')';
-            } else {
-                return a.toString();
-            }
+            return a.toString();
         } else {
             if (a == 0) {
                 if (1 / a < 0) {
@@ -975,10 +969,6 @@ function _run(g) {
                 } else {
                     s = a.toString();
                 }
-            }
-
-            if (typeof a === 'bigfloat') {
-                s += 'l';
             }
 
             return s;
@@ -1021,6 +1011,10 @@ function _run(g) {
                     stdout_write(String(a));
                 } else if (stack.indexOf(a) >= 0) {
                     stdout_write('[circular]');
+                } else if (a instanceof Date) {
+                    stdout_write(`Date ${JSON.stringify(a.toGMTString())}`);
+                } else if (a instanceof RegExp) {
+                    stdout_write(a.toString());
                 } else {
                     stack.push(a);
 
@@ -1046,10 +1040,6 @@ function _run(g) {
                         }
 
                         stdout_write(' ]');
-                    } else if (Object.__getClass(a) === 'Date') {
-                        stdout_write(a.toISOString());
-                    } else if (Object.__getClass(a) === 'RegExp') {
-                        stdout_write(a.toString());
                     } else {
                         keys = Object.keys(a);
                         n = keys.length;
@@ -1074,8 +1064,11 @@ function _run(g) {
                     stack.pop(a);
                 }
             } else if (type === 'string') {
-                stdout_write(a.__quote());
-            } else if (type === 'number' || type === 'bigfloat') {
+                var s = JSON.stringify(a);
+                if (s.length > 79)
+                    s = s.substring(0, 75) + "...\"";
+                stdout_write(s);
+            } else if (type === 'number') {
                 stdout_write(number_to_string(a, 10));
             } else if (type === 'bigint') {
                 stdout_write(bigint_to_string(a, 10));
@@ -1542,25 +1535,6 @@ function _run(g) {
 }
 
 export async function runRepl() {
-    /* expose stdlib */
-    const r = await Promise.allSettled([
-        import('tjs:assert'),
-        import('tjs:ffi'),
-        import('tjs:getopts'),
-        import('tjs:hashing'),
-        import('tjs:ipaddr'),
-        import('tjs:path'),
-        import('tjs:uuid')
-    ]);
-
-    globalThis.assert = r[0].value.default;
-    globalThis.ffi = r[1].value.default;
-    globalThis.getopts = r[2].value.default;
-    globalThis.hashing = r[3].value.default;
-    globalThis.ipaddr = r[4].value.default;
-    globalThis.path = r[5].value.default;
-    globalThis.uuid = r[6].value.default;
-
     window.addEventListener('unhandledrejection', event => {
         // Avoid aborting in unhandled promised on the REPL.
         event.preventDefault();

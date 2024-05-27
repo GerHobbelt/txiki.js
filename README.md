@@ -1,16 +1,18 @@
 
-# <p align="center">txiki.js — The tiny JavaScript runtime</p>
+<p align="center">
+    <img width="480" src="https://raw.githubusercontent.com/saghul/txiki.js/master/logo.png" />
+</p>
+
+# txiki.js — The tiny JavaScript runtime
 
 ## Overview
 
 > **txikia** (basque): small, tiny.
 
-*txiki.js* is a small and powerful JavaScript runtime.  It targets ECMAScript 2020
-and implements many web platform features.
+*txiki.js* is a small and powerful JavaScript runtime.  It targets state-of-the-art ECMAScript
+and aims to be [WinterCG] compliant.
 
-It's built on the shoulders of
-giants: it uses [QuickJS] as its JavaScript engine, [libuv] as the platform layer,
-[wasm3] as the WebAssembly engine and [curl] as the HTTP / WebSocket client.
+It's built on the shoulders of giants: it uses [QuickJS-ng] as its JavaScript engine and [libuv] as the platform layer.
 
 See it in action here:
 
@@ -48,7 +50,11 @@ For TS support see [@txikijs/types](https://www.npmjs.com/package/@txikijs/types
 
 ## Features
 
-Support for the [ES2020] specification plus some ES2020+ features like top level await.
+Support for the [ES2023] specification (almost complete).
+
+### WinterCG
+
+*txiki.js* aims to be [WinterCG] compliant, you can track the progress [here](https://github.com/saghul/txiki.js/issues/418).
 
 ### Web Platform APIs
 
@@ -93,7 +99,6 @@ Other extras:
 
 - Import directly from HTTP(S) URLs
 - Import JSON files
-- BigFloat and BigDecimal extensions
 - Builtin test runner
 
 ### Standard library
@@ -202,7 +207,7 @@ At this time txiki.js uses [calendar versioning] with the form YY.MM.MICRO.
 Built with ❤️ by saghul and these awesome <a href="https://github.com/saghul/txiki.js/graphs/contributors" target="_blank">contributors</a>.
 </footer>
 
-[QuickJS]: https://bellard.org/quickjs/
+[QuickJS-ng]: https://github.com/quickjs-ng/quickjs
 [libuv]: https://libuv.org/
 [curl]: https://github.com/curl/curl
 [libffi]: https://github.com/libffi/libffi
@@ -226,5 +231,6 @@ Built with ❤️ by saghul and these awesome <a href="https://github.com/saghul
 [Web Workers API]: https://developer.mozilla.org/en-US/docs/Web/API/Worker
 [WebAssembly]: https://developer.mozilla.org/en-US/docs/WebAssembly
 [WebSocket]: https://developer.mozilla.org/en-US/docs/Web/API/WebSocket
-[ES2020]: https://tc39.es/ecma262/
+[ES2023]: https://tc39.es/ecma262/
 [calendar versioning]: https://calver.org/
+[WinterCG]: https://wintercg.org/

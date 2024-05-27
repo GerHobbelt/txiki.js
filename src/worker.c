@@ -1,5 +1,5 @@
 /*
- * QuickJS libuv bindings
+ * txiki.js
  *
  * Copyright (c) 2019-present Saúl Ibarra Corretgé <s@saghul.net>
  *
@@ -27,8 +27,8 @@
 
 #include <unistd.h>
 
-
-static char tjs__worker_bootstrap[] = "tjs[Symbol.for('tjs.internal')].bootstrapWorker()";
+extern const uint8_t tjs__worker_bootstrap[];
+extern const uint32_t tjs__worker_bootstrap_size;
 
 enum {
     WORKER_EVENT_MESSAGE = 0,
@@ -50,6 +50,7 @@ typedef struct {
 
 typedef struct {
     JSContext *ctx;
+    JSRuntime *rt;
     union {
         uv_handle_t handle;
         uv_stream_t stream;
@@ -66,7 +67,7 @@ typedef struct {
     uint8_t *data;
 } TJSWorkerWriteReq;
 
-static JSValue worker_eval(JSContext *ctx, int argc, JSValueConst *argv) {
+static JSValue worker_eval(JSContext *ctx, int argc, JSValue *argv) {
     const char *filename;
     JSValue ret;
 
@@ -107,15 +108,18 @@ static void worker_entry(void *arg) {
     /* Bootstrap the worker scope. */
     JSValue global_obj = JS_GetGlobalObject(ctx);
     JSValue worker_obj = tjs_new_worker(ctx, wd->channel_fd, false);
-    JS_DefinePropertyValueStr(ctx, global_obj, "workerThis", worker_obj, JS_PROP_C_W_E);
+    JSValue sym = JS_NewSymbol(ctx, "tjs.internal.worker", TRUE);
+    JSAtom atom = JS_ValueToAtom(ctx, sym);
+    JS_DefinePropertyValue(ctx, global_obj, atom, worker_obj, JS_PROP_C_W_E);
+    JS_FreeAtom(ctx, atom);
+    JS_FreeValue(ctx, sym);
     JS_FreeValue(ctx, global_obj);
 
-    JSValue ret = JS_Eval(ctx, tjs__worker_bootstrap, strlen(tjs__worker_bootstrap), "<global>", JS_EVAL_TYPE_GLOBAL);
-    CHECK_EQ(JS_IsException(ret), 0);
+    CHECK_EQ(tjs__eval_bytecode(ctx, tjs__worker_bootstrap, tjs__worker_bootstrap_size), 0);
 
     /* Load the file and eval the file when the loop runs. */
     JSValue filename = JS_NewString(ctx, wd->path);
-    CHECK_EQ(JS_EnqueueJob(ctx, worker_eval, 1, (JSValueConst *) &filename), 0);
+    CHECK_EQ(JS_EnqueueJob(ctx, worker_eval, 1, (JSValue *) &filename), 0);
     JS_FreeValue(ctx, filename);
 
     /* Notify the caller we are setup.  */
@@ -131,7 +135,7 @@ static void worker_entry(void *arg) {
 static void uv__close_cb(uv_handle_t *handle) {
     TJSWorker *w = handle->data;
     CHECK_NOT_NULL(w);
-    free(w);
+    js_free_rt(w->rt, w);
 }
 
 static void tjs_worker_finalizer(JSRuntime *rt, JSValue val) {
@@ -139,11 +143,13 @@ static void tjs_worker_finalizer(JSRuntime *rt, JSValue val) {
     if (w) {
         for (int i = 0; i < WORKER_EVENT_MAX; i++)
             JS_FreeValueRT(rt, w->events[i]);
-        uv_close(&w->h.handle, uv__close_cb);
+        /* The handle might have been closed by the loop destruction in TJS_FreeRuntime. */
+        if (!uv_is_closing((uv_handle_t *) &w->h.handle))
+            uv_close(&w->h.handle, uv__close_cb);
     }
 }
 
-static void tjs_worker_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+static void tjs_worker_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_func) {
     TJSWorker *w = JS_GetOpaque(val, tjs_worker_class_id);
     if (w) {
         for (int i = 0; i < WORKER_EVENT_MAX; i++)
@@ -157,17 +163,17 @@ static JSClassDef tjs_worker_class = {
     .gc_mark = tjs_worker_mark,
 };
 
-static TJSWorker *tjs_worker_get(JSContext *ctx, JSValueConst obj) {
+static TJSWorker *tjs_worker_get(JSContext *ctx, JSValue obj) {
     return JS_GetOpaque2(ctx, obj, tjs_worker_class_id);
 }
 
-static JSValue emit_event(JSContext *ctx, int argc, JSValueConst *argv) {
+static JSValue emit_event(JSContext *ctx, int argc, JSValue *argv) {
     CHECK_EQ(argc, 2);
 
     JSValue func = argv[0];
     JSValue arg = argv[1];
 
-    JSValue ret = JS_Call(ctx, func, JS_UNDEFINED, 1, (JSValueConst *) &arg);
+    JSValue ret = JS_Call(ctx, func, JS_UNDEFINED, 1, &arg);
     if (JS_IsException(ret))
         tjs_dump_error(ctx);
 
@@ -187,7 +193,7 @@ static void maybe_emit_event(TJSWorker *w, int event, JSValue arg) {
     JSValue args[2];
     args[0] = JS_DupValue(ctx, event_func);
     args[1] = JS_DupValue(ctx, arg);
-    CHECK_EQ(JS_EnqueueJob(ctx, emit_event, 2, (JSValueConst *) &args), 0);
+    CHECK_EQ(JS_EnqueueJob(ctx, emit_event, 2, (JSValue *) &args), 0);
 }
 
 static void uv__alloc_cb(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
@@ -227,13 +233,14 @@ static JSValue tjs_new_worker(JSContext *ctx, uv_os_sock_t channel_fd, bool is_m
     if (JS_IsException(obj))
         return obj;
 
-    TJSWorker *w = calloc(1, sizeof(*w));
+    TJSWorker *w = js_mallocz(ctx, sizeof(*w));
     if (!w) {
         JS_FreeValue(ctx, obj);
         return JS_EXCEPTION;
     }
 
     w->ctx = ctx;
+    w->rt = JS_GetRuntime(ctx);
     w->is_main = is_main;
     w->h.handle.data = w;
 
@@ -249,7 +256,7 @@ static JSValue tjs_new_worker(JSContext *ctx, uv_os_sock_t channel_fd, bool is_m
     return obj;
 }
 
-static JSValue tjs_worker_constructor(JSContext *ctx, JSValueConst new_target, int argc, JSValueConst *argv) {
+static JSValue tjs_worker_constructor(JSContext *ctx, JSValue new_target, int argc, JSValue *argv) {
     const char *path = JS_ToCString(ctx, argv[0]);
     if (!path)
         return JS_EXCEPTION;
@@ -313,7 +320,7 @@ static void uv__write_cb(uv_write_t *req, int status) {
     js_free(ctx, wr);
 }
 
-static JSValue tjs_worker_postmessage(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_worker_postmessage(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSWorker *w = tjs_worker_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
@@ -343,7 +350,7 @@ static JSValue tjs_worker_postmessage(JSContext *ctx, JSValueConst this_val, int
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_worker_terminate(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_worker_terminate(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSWorker *w = tjs_worker_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
@@ -356,14 +363,14 @@ static JSValue tjs_worker_terminate(JSContext *ctx, JSValueConst this_val, int a
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_worker_event_get(JSContext *ctx, JSValueConst this_val, int magic) {
+static JSValue tjs_worker_event_get(JSContext *ctx, JSValue this_val, int magic) {
     TJSWorker *w = tjs_worker_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
     return JS_DupValue(ctx, w->events[magic]);
 }
 
-static JSValue tjs_worker_event_set(JSContext *ctx, JSValueConst this_val, JSValueConst value, int magic) {
+static JSValue tjs_worker_event_set(JSContext *ctx, JSValue this_val, JSValue value, int magic) {
     TJSWorker *w = tjs_worker_get(ctx, this_val);
     if (!w)
         return JS_EXCEPTION;
@@ -384,11 +391,12 @@ static const JSCFunctionListEntry tjs_worker_proto_funcs[] = {
 };
 
 void tjs__mod_worker_init(JSContext *ctx, JSValue ns) {
+    JSRuntime *rt = JS_GetRuntime(ctx);
     JSValue proto, obj;
 
     /* Worker class */
-    JS_NewClassID(&tjs_worker_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), tjs_worker_class_id, &tjs_worker_class);
+    JS_NewClassID(rt, &tjs_worker_class_id);
+    JS_NewClass(rt, tjs_worker_class_id, &tjs_worker_class);
     proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, tjs_worker_proto_funcs, countof(tjs_worker_proto_funcs));
     JS_SetClassProto(ctx, tjs_worker_class_id, proto);

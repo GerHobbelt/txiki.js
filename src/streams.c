@@ -36,6 +36,7 @@ static JSValue tjs_new_tcp(JSContext *ctx, int af);
 
 typedef struct {
     JSContext *ctx;
+    JSRuntime *rt;
     int closed;
     int finalized;
     union {
@@ -74,15 +75,15 @@ typedef struct {
     TJSPromise result;
 } TJSWriteReq;
 
-static TJSStream *tjs_tcp_get(JSContext *ctx, JSValueConst obj);
-static TJSStream *tjs_pipe_get(JSContext *ctx, JSValueConst obj);
+static TJSStream *tjs_tcp_get(JSContext *ctx, JSValue obj);
+static TJSStream *tjs_pipe_get(JSContext *ctx, JSValue obj);
 
 static void uv__stream_close_cb(uv_handle_t *handle) {
     TJSStream *s = handle->data;
     CHECK_NOT_NULL(s);
     s->closed = 1;
     if (s->finalized)
-        free(s);
+        js_free_rt(s->rt, s);
 }
 
 static void maybe_close(TJSStream *s) {
@@ -90,7 +91,7 @@ static void maybe_close(TJSStream *s) {
         uv_close(&s->h.handle, uv__stream_close_cb);
 }
 
-static JSValue tjs_stream_close(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_stream_close(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     JSClassID class_id;
     TJSStream *s = JS_GetAnyOpaque(this_val, &class_id);
     if (!s)
@@ -98,11 +99,11 @@ static JSValue tjs_stream_close(JSContext *ctx, JSValueConst this_val, int argc,
 
     JSValue arg = JS_UNDEFINED;
     if (TJS_IsPromisePending(ctx, &s->read.result)) {
-        TJS_SettlePromise(ctx, &s->read.result, 0, 1, (JSValueConst *) &arg);
+        TJS_SettlePromise(ctx, &s->read.result, 0, 1, &arg);
         TJS_ClearPromise(ctx, &s->read.result);
     }
     if (TJS_IsPromisePending(ctx, &s->accept.result)) {
-        TJS_SettlePromise(ctx, &s->accept.result, 0, 1, (JSValueConst *) &arg);
+        TJS_SettlePromise(ctx, &s->accept.result, 0, 1, &arg);
         TJS_ClearPromise(ctx, &s->accept.result);
     }
 
@@ -137,7 +138,7 @@ static void uv__stream_read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_
         arg = JS_NewInt32(ctx, nread);
     }
 
-    TJS_SettlePromise(ctx, &s->read.result, is_reject, 1, (JSValueConst *) &arg);
+    TJS_SettlePromise(ctx, &s->read.result, is_reject, 1, &arg);
     TJS_ClearPromise(ctx, &s->read.result);
 
     JS_FreeValue(ctx, s->read.b.tarray);
@@ -146,7 +147,7 @@ static void uv__stream_read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_
     s->read.b.len = 0;
 }
 
-static JSValue tjs_stream_read(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_stream_read(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     JSClassID class_id;
     TJSStream *s = JS_GetAnyOpaque(this_val, &class_id);
     if (!s)
@@ -191,12 +192,12 @@ static void uv__stream_write_cb(uv_write_t *req, int status) {
         arg = JS_UNDEFINED;
     }
 
-    TJS_SettlePromise(ctx, &wr->result, is_reject, 1, (JSValueConst *) &arg);
+    TJS_SettlePromise(ctx, &wr->result, is_reject, 1, &arg);
     JS_FreeValue(ctx, wr->tarray);
     js_free(ctx, wr);
 }
 
-static JSValue tjs_stream_write(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_stream_write(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     JSClassID class_id;
     TJSStream *s = JS_GetAnyOpaque(this_val, &class_id);
     if (!s)
@@ -257,12 +258,12 @@ static void uv__stream_shutdown_cb(uv_shutdown_t *req, int status) {
         is_reject = 1;
     }
 
-    TJS_SettlePromise(ctx, &sr->result, is_reject, 1, (JSValueConst *) &arg);
+    TJS_SettlePromise(ctx, &sr->result, is_reject, 1, &arg);
 
     js_free(ctx, sr);
 }
 
-static JSValue tjs_stream_shutdown(JSContext *ctx, TJSStream *s, int argc, JSValueConst *argv) {
+static JSValue tjs_stream_shutdown(JSContext *ctx, TJSStream *s, int argc, JSValue *argv) {
     if (!s)
         return JS_EXCEPTION;
 
@@ -278,7 +279,7 @@ static JSValue tjs_stream_shutdown(JSContext *ctx, TJSStream *s, int argc, JSVal
     return TJS_InitPromise(ctx, &sr->result);
 }
 
-static JSValue tjs_stream_fileno(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_stream_fileno(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     JSClassID class_id;
     TJSStream *s = JS_GetAnyOpaque(this_val, &class_id);
     if (!s)
@@ -313,7 +314,7 @@ static void uv__stream_connect_cb(uv_connect_t *req, int status) {
         is_reject = 1;
     }
 
-    TJS_SettlePromise(ctx, &cr->result, is_reject, 1, (JSValueConst *) &arg);
+    TJS_SettlePromise(ctx, &cr->result, is_reject, 1, &arg);
 
     js_free(ctx, cr);
 }
@@ -355,11 +356,11 @@ static void uv__stream_connection_cb(uv_stream_t *handle, int status) {
         is_reject = 1;
     }
 
-    TJS_SettlePromise(ctx, &s->accept.result, is_reject, 1, (JSValueConst *) &arg);
+    TJS_SettlePromise(ctx, &s->accept.result, is_reject, 1, &arg);
     TJS_ClearPromise(ctx, &s->accept.result);
 }
 
-static JSValue tjs_stream_listen(JSContext *ctx, TJSStream *s, int argc, JSValueConst *argv) {
+static JSValue tjs_stream_listen(JSContext *ctx, TJSStream *s, int argc, JSValue *argv) {
     if (!s)
         return JS_EXCEPTION;
     uint32_t backlog = 511;
@@ -374,7 +375,7 @@ static JSValue tjs_stream_listen(JSContext *ctx, TJSStream *s, int argc, JSValue
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_stream_accept(JSContext *ctx, TJSStream *s, int argc, JSValueConst *argv) {
+static JSValue tjs_stream_accept(JSContext *ctx, TJSStream *s, int argc, JSValue *argv) {
     if (!s)
         return JS_EXCEPTION;
     if (TJS_IsPromisePending(ctx, &s->accept.result))
@@ -382,7 +383,7 @@ static JSValue tjs_stream_accept(JSContext *ctx, TJSStream *s, int argc, JSValue
     return TJS_InitPromise(ctx, &s->accept.result);
 }
 
-static JSValue tjs_stream_set_blocking(JSContext *ctx, TJSStream *s, int argc, JSValueConst *argv) {
+static JSValue tjs_stream_set_blocking(JSContext *ctx, TJSStream *s, int argc, JSValue *argv) {
     if (!s)
         return JS_EXCEPTION;
 
@@ -399,6 +400,7 @@ static JSValue tjs_stream_set_blocking(JSContext *ctx, TJSStream *s, int argc, J
 
 static JSValue tjs_init_stream(JSContext *ctx, JSValue obj, TJSStream *s) {
     s->ctx = ctx;
+    s->rt = JS_GetRuntime(ctx);
     s->closed = 0;
     s->finalized = 0;
 
@@ -422,7 +424,7 @@ static void tjs_stream_finalizer(JSRuntime *rt, TJSStream *s) {
         JS_FreeValueRT(rt, s->read.b.tarray);
         s->finalized = 1;
         if (s->closed)
-            free(s);
+            js_free_rt(rt, s);
         else
             maybe_close(s);
     }
@@ -446,7 +448,7 @@ static void tjs_tcp_finalizer(JSRuntime *rt, JSValue val) {
     tjs_stream_finalizer(rt, t);
 }
 
-static void tjs_tcp_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+static void tjs_tcp_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_func) {
     TJSStream *t = JS_GetOpaque(val, tjs_tcp_class_id);
     tjs_stream_mark(rt, t, mark_func);
 }
@@ -466,7 +468,7 @@ static JSValue tjs_new_tcp(JSContext *ctx, int af) {
     if (JS_IsException(obj))
         return obj;
 
-    s = calloc(1, sizeof(*s));
+    s = js_mallocz(ctx, sizeof(*s));
     if (!s) {
         JS_FreeValue(ctx, obj);
         return JS_EXCEPTION;
@@ -475,25 +477,25 @@ static JSValue tjs_new_tcp(JSContext *ctx, int af) {
     r = uv_tcp_init_ex(tjs_get_loop(ctx), &s->h.tcp, af);
     if (r != 0) {
         JS_FreeValue(ctx, obj);
-        free(s);
+        js_free(ctx, s);
         return JS_ThrowInternalError(ctx, "couldn't initialize TCP handle");
     }
 
     return tjs_init_stream(ctx, obj, s);
 }
 
-static JSValue tjs_tcp_constructor(JSContext *ctx, JSValueConst new_target, int argc, JSValueConst *argv) {
+static JSValue tjs_tcp_constructor(JSContext *ctx, JSValue new_target, int argc, JSValue *argv) {
     int af = AF_UNSPEC;
     if (!JS_IsUndefined(argv[0]) && JS_ToInt32(ctx, &af, argv[0]))
         return JS_EXCEPTION;
     return tjs_new_tcp(ctx, af);
 }
 
-static TJSStream *tjs_tcp_get(JSContext *ctx, JSValueConst obj) {
+static TJSStream *tjs_tcp_get(JSContext *ctx, JSValue obj) {
     return JS_GetOpaque2(ctx, obj, tjs_tcp_class_id);
 }
 
-static JSValue tjs_tcp_getsockpeername(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic) {
+static JSValue tjs_tcp_getsockpeername(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, int magic) {
     TJSStream *t = tjs_tcp_get(ctx, this_val);
     if (!t)
         return JS_EXCEPTION;
@@ -515,7 +517,7 @@ static JSValue tjs_tcp_getsockpeername(JSContext *ctx, JSValueConst this_val, in
     return obj;
 }
 
-static JSValue tjs_tcp_connect(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tcp_connect(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_tcp_get(ctx, this_val);
     if (!t)
         return JS_EXCEPTION;
@@ -538,7 +540,7 @@ static JSValue tjs_tcp_connect(JSContext *ctx, JSValueConst this_val, int argc, 
     return TJS_InitPromise(ctx, &cr->result);
 }
 
-static JSValue tjs_tcp_bind(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tcp_bind(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_tcp_get(ctx, this_val);
     if (!t)
         return JS_EXCEPTION;
@@ -560,7 +562,7 @@ static JSValue tjs_tcp_bind(JSContext *ctx, JSValueConst this_val, int argc, JSV
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_tcp_keepalive(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tcp_keepalive(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_tcp_get(ctx, this_val);
     if (!t)
         return JS_EXCEPTION;
@@ -569,15 +571,18 @@ static JSValue tjs_tcp_keepalive(JSContext *ctx, JSValueConst this_val, int argc
     if ((enable = JS_ToBool(ctx, argv[0])) == -1)
         return JS_EXCEPTION;
 
-    int r = uv_tcp_keepalive(&t->h.tcp, enable, 0);
-    if (r != 0 &&
-        r != UV_EINVAL)  // Filter out EINVAL: https://github.com/libuv/libuv/pull/3488#issuecomment-1057836172
+    int delay;
+    if (JS_ToInt32(ctx, &delay, argv[1]))
+        return JS_EXCEPTION;
+
+    int r = uv_tcp_keepalive(&t->h.tcp, enable, delay);
+    if (r != 0)
         return tjs_throw_errno(ctx, r);
 
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_tcp_nodelay(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tcp_nodelay(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_tcp_get(ctx, this_val);
     if (!t)
         return JS_EXCEPTION;
@@ -593,17 +598,17 @@ static JSValue tjs_tcp_nodelay(JSContext *ctx, JSValueConst this_val, int argc, 
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_tcp_shutdown(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tcp_shutdown(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_tcp_get(ctx, this_val);
     return tjs_stream_shutdown(ctx, t, argc, argv);
 }
 
-static JSValue tjs_tcp_listen(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tcp_listen(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_tcp_get(ctx, this_val);
     return tjs_stream_listen(ctx, t, argc, argv);
 }
 
-static JSValue tjs_tcp_accept(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tcp_accept(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_tcp_get(ctx, this_val);
     return tjs_stream_accept(ctx, t, argc, argv);
 }
@@ -618,7 +623,7 @@ static void tjs_tty_finalizer(JSRuntime *rt, JSValue val) {
     tjs_stream_finalizer(rt, t);
 }
 
-static void tjs_tty_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+static void tjs_tty_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_func) {
     TJSStream *t = JS_GetOpaque(val, tjs_tty_class_id);
     tjs_stream_mark(rt, t, mark_func);
 }
@@ -629,7 +634,7 @@ static JSClassDef tjs_tty_class = {
     .gc_mark = tjs_tty_mark,
 };
 
-static JSValue tjs_tty_constructor(JSContext *ctx, JSValueConst new_target, int argc, JSValueConst *argv) {
+static JSValue tjs_tty_constructor(JSContext *ctx, JSValue new_target, int argc, JSValue *argv) {
     TJSStream *s;
     JSValue obj;
     int fd, r, readable;
@@ -644,7 +649,7 @@ static JSValue tjs_tty_constructor(JSContext *ctx, JSValueConst new_target, int 
     if (JS_IsException(obj))
         return obj;
 
-    s = calloc(1, sizeof(*s));
+    s = js_mallocz(ctx, sizeof(*s));
     if (!s) {
         JS_FreeValue(ctx, obj);
         return JS_EXCEPTION;
@@ -653,18 +658,18 @@ static JSValue tjs_tty_constructor(JSContext *ctx, JSValueConst new_target, int 
     r = uv_tty_init(tjs_get_loop(ctx), &s->h.tty, fd, readable);
     if (r != 0) {
         JS_FreeValue(ctx, obj);
-        free(s);
+        js_free(ctx, s);
         return JS_ThrowInternalError(ctx, "couldn't initialize TTY handle");
     }
 
     return tjs_init_stream(ctx, obj, s);
 }
 
-static TJSStream *tjs_tty_get(JSContext *ctx, JSValueConst obj) {
+static TJSStream *tjs_tty_get(JSContext *ctx, JSValue obj) {
     return JS_GetOpaque2(ctx, obj, tjs_tty_class_id);
 }
 
-static JSValue tjs_tty_setMode(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tty_setMode(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *s = tjs_tty_get(ctx, this_val);
     if (!s)
         return JS_EXCEPTION;
@@ -680,7 +685,7 @@ static JSValue tjs_tty_setMode(JSContext *ctx, JSValueConst this_val, int argc, 
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_tty_getWinSize(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_tty_getWinSize(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *s = tjs_tty_get(ctx, this_val);
     if (!s)
         return JS_EXCEPTION;
@@ -706,7 +711,7 @@ static void tjs_pipe_finalizer(JSRuntime *rt, JSValue val) {
     tjs_stream_finalizer(rt, t);
 }
 
-static void tjs_pipe_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+static void tjs_pipe_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_func) {
     TJSStream *t = JS_GetOpaque(val, tjs_pipe_class_id);
     tjs_stream_mark(rt, t, mark_func);
 }
@@ -726,7 +731,7 @@ JSValue tjs_new_pipe(JSContext *ctx) {
     if (JS_IsException(obj))
         return obj;
 
-    s = calloc(1, sizeof(*s));
+    s = js_mallocz(ctx, sizeof(*s));
     if (!s) {
         JS_FreeValue(ctx, obj);
         return JS_EXCEPTION;
@@ -735,22 +740,22 @@ JSValue tjs_new_pipe(JSContext *ctx) {
     r = uv_pipe_init(tjs_get_loop(ctx), &s->h.pipe, 0);
     if (r != 0) {
         JS_FreeValue(ctx, obj);
-        free(s);
+        js_free(ctx, s);
         return JS_ThrowInternalError(ctx, "couldn't initialize Pipe handle");
     }
 
     return tjs_init_stream(ctx, obj, s);
 }
 
-static JSValue tjs_pipe_constructor(JSContext *ctx, JSValueConst new_target, int argc, JSValueConst *argv) {
+static JSValue tjs_pipe_constructor(JSContext *ctx, JSValue new_target, int argc, JSValue *argv) {
     return tjs_new_pipe(ctx);
 }
 
-static TJSStream *tjs_pipe_get(JSContext *ctx, JSValueConst obj) {
+static TJSStream *tjs_pipe_get(JSContext *ctx, JSValue obj) {
     return JS_GetOpaque2(ctx, obj, tjs_pipe_class_id);
 }
 
-uv_stream_t *tjs_pipe_get_stream(JSContext *ctx, JSValueConst obj) {
+uv_stream_t *tjs_pipe_get_stream(JSContext *ctx, JSValue obj) {
     TJSStream *s = tjs_pipe_get(ctx, obj);
     if (s)
         return &s->h.stream;
@@ -758,9 +763,9 @@ uv_stream_t *tjs_pipe_get_stream(JSContext *ctx, JSValueConst obj) {
 }
 
 static JSValue tjs_pipe_getsockpeername(JSContext *ctx,
-                                        JSValueConst this_val,
+                                        JSValue this_val,
                                         int argc,
-                                        JSValueConst *argv,
+                                        JSValue *argv,
                                         int magic) {
     TJSStream *t = tjs_pipe_get(ctx, this_val);
     if (!t)
@@ -781,7 +786,7 @@ static JSValue tjs_pipe_getsockpeername(JSContext *ctx,
     return JS_NewStringLen(ctx, buf, len);
 }
 
-static JSValue tjs_pipe_connect(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_pipe_connect(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_pipe_get(ctx, this_val);
     if (!t)
         return JS_EXCEPTION;
@@ -807,7 +812,7 @@ static JSValue tjs_pipe_connect(JSContext *ctx, JSValueConst this_val, int argc,
     return TJS_InitPromise(ctx, &cr->result);
 }
 
-static JSValue tjs_pipe_bind(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_pipe_bind(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_pipe_get(ctx, this_val);
     if (!t)
         return JS_EXCEPTION;
@@ -827,7 +832,7 @@ static JSValue tjs_pipe_bind(JSContext *ctx, JSValueConst this_val, int argc, JS
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_pipe_open(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_pipe_open(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_pipe_get(ctx, this_val);
     if (!t)
         return JS_EXCEPTION;
@@ -843,17 +848,17 @@ static JSValue tjs_pipe_open(JSContext *ctx, JSValueConst this_val, int argc, JS
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_pipe_listen(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_pipe_listen(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_pipe_get(ctx, this_val);
     return tjs_stream_listen(ctx, t, argc, argv);
 }
 
-static JSValue tjs_pipe_accept(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_pipe_accept(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_pipe_get(ctx, this_val);
     return tjs_stream_accept(ctx, t, argc, argv);
 }
 
-static JSValue tjs_pipe_set_blocking(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+static JSValue tjs_pipe_set_blocking(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSStream *t = tjs_pipe_get(ctx, this_val);
     return tjs_stream_set_blocking(ctx, t, argc, argv);
 }
@@ -875,7 +880,7 @@ static const JSCFunctionListEntry tjs_tcp_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getpeername", 0, tjs_tcp_getsockpeername, 1),
     TJS_CFUNC_DEF("connect", 1, tjs_tcp_connect),
     TJS_CFUNC_DEF("bind", 2, tjs_tcp_bind),
-    TJS_CFUNC_DEF("setKeepAlive", 1, tjs_tcp_keepalive),
+    TJS_CFUNC_DEF("setKeepAlive", 2, tjs_tcp_keepalive),
     TJS_CFUNC_DEF("setNoDelay", 1, tjs_tcp_nodelay),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "TCP", JS_PROP_CONFIGURABLE),
 };
@@ -915,6 +920,7 @@ static const JSCFunctionListEntry tjs_streams_funcs[] = {
 };
 
 void tjs__mod_streams_init(JSContext *ctx, JSValue ns) {
+    JSRuntime *rt = JS_GetRuntime(ctx);
     JSValue proto, obj, stream_proto;
 
     /* Stream prototype */
@@ -922,8 +928,8 @@ void tjs__mod_streams_init(JSContext *ctx, JSValue ns) {
     JS_SetPropertyFunctionList(ctx, stream_proto, tjs_stream_proto_funcs, countof(tjs_stream_proto_funcs));
 
     /* TCP class */
-    JS_NewClassID(&tjs_tcp_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), tjs_tcp_class_id, &tjs_tcp_class);
+    JS_NewClassID(rt, &tjs_tcp_class_id);
+    JS_NewClass(rt, tjs_tcp_class_id, &tjs_tcp_class);
     proto = JS_NewObjectProto(ctx, stream_proto);
     JS_SetPropertyFunctionList(ctx, proto, tjs_tcp_proto_funcs, countof(tjs_tcp_proto_funcs));
     JS_SetClassProto(ctx, tjs_tcp_class_id, proto);
@@ -934,8 +940,8 @@ void tjs__mod_streams_init(JSContext *ctx, JSValue ns) {
     JS_DefinePropertyValueStr(ctx, ns, "TCP", obj, JS_PROP_C_W_E);
 
     /* TTY class */
-    JS_NewClassID(&tjs_tty_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), tjs_tty_class_id, &tjs_tty_class);
+    JS_NewClassID(rt, &tjs_tty_class_id);
+    JS_NewClass(rt, tjs_tty_class_id, &tjs_tty_class);
     proto = JS_NewObjectProto(ctx, stream_proto);
     JS_SetPropertyFunctionList(ctx, proto, tjs_tty_proto_funcs, countof(tjs_tty_proto_funcs));
     JS_SetClassProto(ctx, tjs_tty_class_id, proto);
@@ -946,8 +952,8 @@ void tjs__mod_streams_init(JSContext *ctx, JSValue ns) {
     JS_DefinePropertyValueStr(ctx, ns, "TTY", obj, JS_PROP_C_W_E);
 
     /* Pipe class */
-    JS_NewClassID(&tjs_pipe_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), tjs_pipe_class_id, &tjs_pipe_class);
+    JS_NewClassID(rt, &tjs_pipe_class_id);
+    JS_NewClass(rt, tjs_pipe_class_id, &tjs_pipe_class);
     proto = JS_NewObjectProto(ctx, stream_proto);
     JS_SetPropertyFunctionList(ctx, proto, tjs_pipe_proto_funcs, countof(tjs_pipe_proto_funcs));
     JS_SetClassProto(ctx, tjs_pipe_class_id, proto);

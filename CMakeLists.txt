@@ -24,7 +24,7 @@ if (CMAKE_BUILD_TYPE MATCHES "Debug")
 endif()
 
 set(TJS__VERSION_MAJOR 23)
-set(TJS__VERSION_MINOR 10)
+set(TJS__VERSION_MINOR 12)
 set(TJS__VERSION_PATCH 0)
 set(TJS__VERSION_SUFFIX "")
 configure_file(
@@ -44,7 +44,7 @@ macro(cpr_option OPTION_NAME OPTION_TEXT OPTION_DEFAULT)
     message(STATUS "  ${OPTION_NAME}: ${${OPTION_NAME}}")
 endmacro()
 
-cpr_option(BUILD_WITH_ASAN "If ON, build with the address sanitizer enabled" OFF)
+cpr_option(BUILD_WITH_MIMALLOC "If ON (default), build with mimalloc" ON)
 cpr_option(USE_EXTERNAL_FFI "Specify to use external ffi dependency" OFF)
 
 add_subdirectory(deps/quickjs EXCLUDE_FROM_ALL)
@@ -57,6 +57,15 @@ add_subdirectory(deps/sqlite3 EXCLUDE_FROM_ALL)
 set(BUILD_WASI "simple" CACHE STRING "WASI implementation")
 add_subdirectory(deps/wasm3 EXCLUDE_FROM_ALL)
 
+if(BUILD_WITH_MIMALLOC)
+    option(MI_OVERRIDE "" OFF)
+    option(MI_BUILD_SHARED "" OFF)
+    option(MI_BUILD_STATIC "" ON)
+    option(MI_BUILD_OBJECT "" OFF)
+    option(MI_BUILD_TESTS "" OFF)
+    add_subdirectory(deps/mimalloc EXCLUDE_FROM_ALL)
+endif()
+
 find_package(CURL REQUIRED)
 
 add_executable(tjs
@@ -64,13 +73,13 @@ add_executable(tjs
     src/cli.c
     src/curl-utils.c
     src/curl-websocket.c
-    src/curl-websocket-utils.c
     src/dns.c
     src/error.c
     src/eval.c
     src/ffi.c
     src/fs.c
     src/fswatch.c
+    src/mem.c
     src/modules.c
     src/os.c
     src/process.c
@@ -91,6 +100,7 @@ add_executable(tjs
     src/bundles/c/core/core.c
     src/bundles/c/core/polyfills.c
     src/bundles/c/core/run-main.c
+    src/bundles/c/core/worker-bootstrap.c
     ../deps/quickjs/cutils.c
 )
 
@@ -102,7 +112,7 @@ add_library(ffi-test SHARED
     tests/fixtures/ffi-test-lib.c
 )
 
-if(NOT USE_EXTERNAL_FFI AND NOT MINGW)
+if(NOT USE_EXTERNAL_FFI AND NOT MINGW AND NOT APPLE)
     set(LIBFFI_SRC "${CMAKE_SOURCE_DIR}/deps/libffi")
     set(TMP_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/ffi_root")
     if(MINGW)
@@ -114,7 +124,7 @@ if(NOT USE_EXTERNAL_FFI AND NOT MINGW)
         libffi
         BUILD_IN_SOURCE 1
         SOURCE_DIR "${LIBFFI_SRC}"
-        CONFIGURE_COMMAND ./autogen.sh COMMAND ./configure --enable-static=yes --disable-shared
+        CONFIGURE_COMMAND ./autogen.sh COMMAND ./configure --enable-static=yes --disable-shared --disable-multi-os-directory
         BUILD_COMMAND make
         INSTALL_DIR ${TMP_INSTALL_DIR}
         INSTALL_COMMAND make DESTDIR=${TMP_INSTALL_DIR} install
@@ -127,8 +137,8 @@ if(NOT USE_EXTERNAL_FFI AND NOT MINGW)
     target_include_directories(tjs PRIVATE ${TMP_INSTALL_DIR}/usr/local/include)
     target_link_libraries(tjs libffi_a)
 else()
-    find_library(FFI_LIB NAMES libffi ffi)
-    find_path(FFI_INCLUDE_DIR NAMES ffi.h)
+    find_library(FFI_LIB NAMES libffi ffi REQUIRED)
+    find_path(FFI_INCLUDE_DIR NAMES ffi.h PATH_SUFFIXES ffi REQUIRED)
     target_include_directories(tjs PRIVATE ${FFI_INCLUDE_DIR})
     target_link_libraries(tjs ${FFI_LIB})
 endif()
@@ -144,9 +154,9 @@ target_compile_definitions(tjs PRIVATE TJS__PLATFORM="${TJS_PLATFORM}")
 target_include_directories(tjs PRIVATE ${CURL_INCLUDE_DIRS})
 target_link_libraries(tjs qjs uv_a m3 sqlite3 m pthread ${CURL_LIBRARIES})
 
-if (BUILD_WITH_ASAN)
-    target_compile_options(tjs PRIVATE -fsanitize=address)
-    target_link_options(tjs PRIVATE -fsanitize=address)
+if (BUILD_WITH_MIMALLOC)
+    target_compile_definitions(tjs PRIVATE TJS__HAS_MIMALLOC)
+    target_link_libraries(tjs mimalloc-static)
 endif()
 
 add_executable(tjsc EXCLUDE_FROM_ALL
