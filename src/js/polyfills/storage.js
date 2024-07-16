@@ -1,7 +1,7 @@
 /* global tjs */
 
 const core = globalThis[Symbol.for('tjs.internal.core')];
-const sqlite3 = core._sqlite3;
+const sqlite3 = core.sqlite3;
 
 const kStorageMap = Symbol('kStorageMap');
 
@@ -90,8 +90,8 @@ const kStorageDb = Symbol('kStorageDb');
 function initDb() {
     const path = globalThis[Symbol.for('tjs.internal.modules.path')];
 
-    const TJS_HOME = tjs.env.TJS_HOME ?? path.join(tjs.homedir(), '.tjs');
-    const localStorageDb = path.join(TJS_HOME, 'localStorage.sqlite');
+    const TJS_HOME = tjs.env.TJS_HOME ?? path.join(tjs.homeDir, '.tjs');
+    const localStorageDb = path.join(TJS_HOME, 'localStorage.db');
     const flags = sqlite3.SQLITE_OPEN_CREATE | sqlite3.SQLITE_OPEN_READWRITE;
 
     try {
@@ -220,7 +220,7 @@ function mkdirSync(path, options = { mode: 0o777, recursive: false }) {
     const pathModule = globalThis[Symbol.for('tjs.internal.modules.path')];
 
     if (!options.recursive) {
-        return core._mkdirSync(path, options.mode);
+        return core.mkdirSync(path, options.mode);
     }
 
     const parent = pathModule.dirname(path);
@@ -232,11 +232,11 @@ function mkdirSync(path, options = { mode: 0o777, recursive: false }) {
     mkdirSync(parent, options);
 
     try {
-        return core._mkdirSync(path, options.mode);
+        return core.mkdirSync(path, options.mode);
     } catch (e) {
         // Cannot rely on checking for EEXIST since the OS could throw other errors like EROFS.
 
-        const st = core._statSync(path);
+        const st = core.statSync(path);
 
         if (!st.isDirectory) {
             throw e;

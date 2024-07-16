@@ -33,13 +33,13 @@ class Test {
     }
 
     run() {
-        const args = [ tjs.exepath, 'run', this._fileName ];
+        const args = [ tjs.exePath, 'run', this._fileName ];
 
         this._proc = tjs.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
         this._stdout = this._slurpStdio(this._proc.stdout);
         this._stderr = this._slurpStdio(this._proc.stderr);
         this._timer = setTimeout(() => {
-            this._proc.kill(tjs.SIGKILL);
+            this._proc.kill('SIGKILL');
             this._timeout = true;
         }, TIMEOUT);
         this._proc_exit = this._proc.wait();
@@ -105,8 +105,8 @@ function printResult(result) {
 }
 
 export async function runTests(d) {
-    const dir = await tjs.realpath(d || tjs.cwd());
-    const dirIter = await tjs.readdir(dir);
+    const dir = await tjs.realPath(d || tjs.cwd);
+    const dirIter = await tjs.readDir(dir);
     const tests = [];
 
     for await (const item of dirIter) {
@@ -118,7 +118,7 @@ export async function runTests(d) {
     }
 
     let failed = 0;
-    const testConcurrency = tjs.env.TJS_TEST_CONCURRENCY ?? tjs.availableParallelism();
+    const testConcurrency = tjs.env.TJS_TEST_CONCURRENCY ?? tjs.system.availableParallelism;
     const running = new Set();
 
     // eslint-disable-next-line no-constant-condition

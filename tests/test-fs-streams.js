@@ -3,7 +3,7 @@ import assert from 'tjs:assert';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-const file = await tjs.mkstemp('testFile_XXXXXX');
+const file = await tjs.makeTempFile('testFile_XXXXXX');
 const path = file.path;
 
 assert.ok(file.writable instanceof WritableStream);
@@ -20,4 +20,4 @@ await readable.pipeTo(file.writable);
 const data = await tjs.readFile(path);
 assert.eq(decoder.decode(data), "hello world!");
 
-await tjs.unlink(path);
+await tjs.remove(path);

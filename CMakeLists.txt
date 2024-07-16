@@ -23,8 +23,8 @@ if (CMAKE_BUILD_TYPE MATCHES "Debug")
     list(APPEND tjs_cflags -ggdb -O0 -fno-omit-frame-pointer)
 endif()
 
-set(TJS__VERSION_MAJOR 23)
-set(TJS__VERSION_MINOR 12)
+set(TJS__VERSION_MAJOR 24)
+set(TJS__VERSION_MINOR 6)
 set(TJS__VERSION_PATCH 0)
 set(TJS__VERSION_SUFFIX "")
 configure_file(
@@ -72,22 +72,13 @@ add_library(tjs STATIC
     src/builtins.c
     src/curl-utils.c
     src/curl-websocket.c
-    src/dns.c
     src/error.c
     src/eval.c
-    src/ffi.c
-    src/fs.c
-    src/fswatch.c
     src/mem.c
     src/modules.c
-    src/os.c
-    src/process.c
     src/sha1.c
-    src/streams.c
     src/signals.c
-    src/sys.c
     src/timers.c
-    src/udp.c
     src/utils.c
     src/version.c
     src/vm.c
@@ -95,16 +86,27 @@ add_library(tjs STATIC
     src/worker.c
     src/ws.c
     src/xhr.c
-    src/_sqlite3.c
+    src/mod_dns.c
+    src/mod_engine.c
+    src/mod_ffi.c
+    src/mod_fs.c
+    src/mod_fswatch.c
+    src/mod_os.c
+    src/mod_process.c
+    src/mod_sqlite3.c
+    src/mod_streams.c
+    src/mod_sys.c
+    src/mod_udp.c
     src/bundles/c/core/core.c
     src/bundles/c/core/polyfills.c
     src/bundles/c/core/run-main.c
+    src/bundles/c/core/run-repl.c
     src/bundles/c/core/worker-bootstrap.c
     deps/quickjs/cutils.c
 )
 
-if(NOT MINGW)
-    target_sources(tjs PUBLIC src/posix-socket.c)
+if(UNIX)
+    target_sources(tjs PUBLIC src/mod_posix-socket.c)
 endif()
 
 add_library(ffi-test SHARED
@@ -150,9 +152,8 @@ set_target_properties(tjs PROPERTIES
 string(TOLOWER ${CMAKE_SYSTEM_NAME} TJS_PLATFORM)
 target_compile_options(tjs PRIVATE ${tjs_cflags})
 target_compile_definitions(tjs PRIVATE TJS__PLATFORM="${TJS_PLATFORM}")
-target_include_directories(tjs PRIVATE ${CURL_INCLUDE_DIRS})
 target_include_directories(tjs PUBLIC src)
-target_link_libraries(tjs qjs uv_a m3 sqlite3 m pthread ${CURL_LIBRARIES})
+target_link_libraries(tjs qjs uv_a m3 sqlite3 m pthread CURL::libcurl)
 
 if (BUILD_WITH_MIMALLOC)
     target_compile_definitions(tjs PRIVATE TJS__HAS_MIMALLOC)

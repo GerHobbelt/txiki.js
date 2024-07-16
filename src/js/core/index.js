@@ -1,72 +1,61 @@
 const core = globalThis[Symbol.for('tjs.internal.core')];
 
 import { alert, confirm, prompt } from './alert-confirm-prompt.js';
+import engine from './engine.js';
 import env from './env.js';
-import { open, mkdir, mkstemp, rm } from './fs.js';
+import { open, makeDir, makeTempFile, remove } from './fs.js';
+import { lookup } from './lookup.js';
 import pathModule from './path.js';
-import { PosixSocket } from './posix-socket.js';
 import { addSignalListener, removeSignalListener } from './signal.js';
 import { connect, listen } from './sockets.js';
 import { createStdin, createStdout, createStderr } from './stdio.js';
+import system from './system.js';
 
 
 // The "tjs" global.
 //
 
 const tjs = Object.create(null);
-const noExport = [
-    'STDIN_FILENO',
-    'STDOUT_FILENO',
-    'STDERR_FILENO',
-    'TCP_IPV6ONLY',
-    'UDP_IPV6ONLY',
-    'UDP_REUSEADDR',
-    'Pipe',
-    'TCP',
-    'TTY',
-    'UDP',
-    'WebSocket',
-    'Worker',
-    'XMLHttpRequest',
-    'clearInterval',
-    'clearTimeout',
-    'evalFile',
-    'evalScript',
-    'ffi_load_native',
-    'guessHandle',
-    'isStdinTty',
-    'mkdir',
-    'mkstemp',
-    'newStdioFile',
-    'open',
-    'posix_socket',
-    'random',
-    'randomUUID',
-    'setInterval',
-    'setMaxStackSize',
-    'setMemoryLimit',
-    'setTimeout',
-    'signal',
-    'signals',
-    'sleep',
-    'wasm'
+
+// Export these properties directly from the core.
+const exports = [
+    'Error',
+    'chdir',
+    'chmod',
+    'chown',
+    'copyFile',
+    'createConsole',
+    'cwd',
+    'exePath',
+    'exec',
+    'exit',
+    'format',
+    'homeDir',
+    'hostName',
+    'inspect',
+    'kill',
+    'lchown',
+    'lstat',
+    'makeTempDir',
+    'pid',
+    'ppid',
+    'readDir',
+    'readFile',
+    'realPath',
+    'rename',
+    'spawn',
+    'stat',
+    'tmpDir',
+    'version',
+    'watch'
 ];
 
-for (const [ key, value ] of Object.entries(core)) {
-    if (key.startsWith('_')) {
-        continue;
-    }
-
-    if (noExport.includes(key)) {
-        continue;
-    }
-
-    tjs[key] = value;
+for (const key of exports) {
+    Object.defineProperty(tjs, key, Object.getOwnPropertyDescriptor(core, key));
 }
 
 // These values should be immutable.
 tjs.args = Object.freeze(core.args);
-tjs.versions = Object.freeze(core.versions);
 
 // Alert, confirm, prompt.
 // These differ slightly from browsers, they are async.
@@ -89,20 +78,12 @@ Object.defineProperty(tjs, 'prompt', {
     value: prompt
 });
 
-// Getters.
-Object.defineProperty(tjs, 'pid', {
+// Engine.
+Object.defineProperty(tjs, 'engine', {
     enumerable: true,
     configurable: false,
-    get() {
-        return core.getPid();
-    }
-});
-Object.defineProperty(tjs, 'ppid', {
-    enumerable: true,
-    configurable: false,
-    get() {
-        return core.getPpid();
-    }
+    writable: false,
+    value: engine
 });
 
 // Environment.
@@ -120,23 +101,23 @@ Object.defineProperty(tjs, 'open', {
     writable: false,
     value: open
 });
-Object.defineProperty(tjs, 'mkdir', {
+Object.defineProperty(tjs, 'makeDir', {
     enumerable: true,
     configurable: false,
     writable: false,
-    value: mkdir
+    value: makeDir
 });
-Object.defineProperty(tjs, 'mkstemp', {
+Object.defineProperty(tjs, 'makeTempFile', {
     enumerable: true,
     configurable: false,
     writable: false,
-    value: mkstemp
+    value: makeTempFile
 });
-Object.defineProperty(tjs, 'rm', {
+Object.defineProperty(tjs, 'remove', {
     enumerable: true,
     configurable: false,
     writable: false,
-    value: rm
+    value: remove
 });
 
 // Signals.
@@ -168,6 +149,12 @@ Object.defineProperty(tjs, 'listen', {
     writable: false,
     value: listen
 });
+Object.defineProperty(tjs, 'lookup', {
+    enumerable: true,
+    configurable: false,
+    writable: false,
+    value: lookup
+});
 
 // Stdio.
 Object.defineProperty(tjs, 'stdin', {
@@ -189,15 +176,13 @@ Object.defineProperty(tjs, 'stderr', {
     value: createStderr()
 });
 
-// PosixSocket.
-if (core.posix_socket) {
-    Object.defineProperty(tjs, 'PosixSocket', {
-        enumerable: true,
-        configurable: false,
-        writable: false,
-        value: PosixSocket
-    });
-}
+// System.
+Object.defineProperty(tjs, 'system', {
+    enumerable: true,
+    configurable: false,
+    writable: false,
+    value: system
+});
 
 // Internal stuff needed by the runtime.
 globalThis[Symbol.for('tjs.internal.modules.path')] = pathModule;

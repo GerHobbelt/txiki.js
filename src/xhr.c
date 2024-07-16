@@ -1,5 +1,5 @@
 /*
- * QuickJS libuv bindings
+ * txiki.js
  *
  * Copyright (c) 2019-present Saúl Ibarra Corretgé <s@saghul.net>
  *
@@ -143,13 +143,8 @@ static void maybe_emit_event(TJSXhr *x, int event, JSValue arg) {
         return;
     }
 
-    JSValue func = JS_DupValue(ctx, event_func);
-    JSValue ret = JS_Call(ctx, func, JS_UNDEFINED, 1, &arg);
-    if (JS_IsException(ret))
-        tjs_dump_error(ctx);
+    tjs_call_handler(ctx, event_func, 1, &arg);
 
-    JS_FreeValue(ctx, ret);
-    JS_FreeValue(ctx, func);
     JS_FreeValue(ctx, arg);
 }
 
@@ -391,7 +386,7 @@ static JSValue tjs_xhr_response_get(JSContext *ctx, JSValue this_val) {
             case XHR_RTYPE_JSON:
                 // It's necessary to null-terminate the string passed to JS_ParseJSON.
                 dbuf_putc(bbuf, '\0');
-                x->result.response = JS_ParseJSON(ctx, (char *) bbuf->buf, bbuf->size-1, "<xhr>");
+                x->result.response = JS_ParseJSON(ctx, (char *) bbuf->buf, bbuf->size - 1, "<xhr>");
                 break;
             default:
                 abort();
@@ -686,10 +681,17 @@ static JSValue tjs_xhr_send(JSContext *ctx, JSValue this_val, int argc, JSValue 
             size_t size;
             const char *body = JS_ToCStringLen(ctx, &size, arg);
             if (body) {
-                curl_easy_setopt(x->curl_h, CURLOPT_POSTFIELDSIZE, (long) size);
+                curl_easy_setopt(x->curl_h, CURLOPT_POSTFIELDSIZE_LARGE, size);
                 curl_easy_setopt(x->curl_h, CURLOPT_COPYPOSTFIELDS, body);
                 JS_FreeCString(ctx, body);
             }
+        } else if (JS_IsUint8Array(arg)) {
+            size_t size;
+            uint8_t *buf = JS_GetUint8Array(ctx, &size, argv[0]);
+            if (!buf)
+                return JS_EXCEPTION;
+            curl_easy_setopt(x->curl_h, CURLOPT_POSTFIELDSIZE_LARGE, size);
+            curl_easy_setopt(x->curl_h, CURLOPT_COPYPOSTFIELDS, buf);
         }
         if (x->slist)
             curl_easy_setopt(x->curl_h, CURLOPT_HTTPHEADER, x->slist);

@@ -42,13 +42,13 @@ export async function open(path, mode) {
     return new Proxy(handle, fhProxyHandler);
 }
 
-export async function mkstemp(template) {
+export async function makeTempFile(template) {
     const handle = await core.mkstemp(template);
 
     return new Proxy(handle, fhProxyHandler);
 }
 
-export async function mkdir(path, options = { mode: 0o777, recursive: false }) {
+export async function makeDir(path, options = { mode: 0o777, recursive: false }) {
     if (!options.recursive) {
         return core.mkdir(path, options.mode);
     }
@@ -59,7 +59,7 @@ export async function mkdir(path, options = { mode: 0o777, recursive: false }) {
         return;
     }
 
-    await mkdir(parent, options);
+    await makeDir(parent, options);
 
     try {
         return await core.mkdir(path, options.mode);
@@ -92,7 +92,7 @@ const retryErrors = new Set([
 const isWindows = core.platform === 'windows';
 const _epermHandler = isWindows ? _fixWinEPERM : _rmdir;
 
-export async function rm(path, options = { maxRetries: 0, retryDelay: 100 }) {
+export async function remove(path, options = { maxRetries: 0, retryDelay: 100 }) {
     let stats;
 
     try {
@@ -142,7 +142,7 @@ async function _unlink(path, options) {
             // Only sleep if this is not the last try, and the delay is greater
             // than zero, and an error was encountered that warrants a retry.
             if (retryErrors.has(err.code) && i < tries && options.retryDelay > 0) {
-                core.sleep(i * options.retryDelay);
+                await sleep(i * options.retryDelay);
             } else if (err.code === 'ENOENT') {
                 // The file is already gone.
                 return;
@@ -172,12 +172,12 @@ async function _rmdir(path, options, originalErr) {
             // when files are deleted, resulting in spurious ENOTEMPTY failures. Work
             // around that issue by retrying on Windows.
 
-            const dirIter = await core.readdir(path);
+            const dirIter = await core.readDir(path);
 
             for await (const item of dirIter) {
                 const childPath = pathModule.join(path, item.name);
 
-                await rm(childPath, options);
+                await remove(childPath, options);
             }
 
             const tries = options.maxRetries + 1;
@@ -189,7 +189,7 @@ async function _rmdir(path, options, originalErr) {
                     // Only sleep if this is not the last try, and the delay is greater
                     // than zero, and an error was encountered that warrants a retry.
                     if (retryErrors.has(err.code) && i < tries && options.retryDelay > 0) {
-                        core.sleep(i * options.retryDelay);
+                        await sleep(i * options.retryDelay);
                     } else if (err.code === 'ENOENT') {
                         // The file is already gone.
                         return;
@@ -233,4 +233,10 @@ async function _fixWinEPERM(path, options, originalErr) {
     } else {
         return _unlink(path, options);
     }
+}
+
+async function sleep(ms) {
+    return new Promise(resolve => {
+        setTimeout(resolve, ms);
+    });
 }

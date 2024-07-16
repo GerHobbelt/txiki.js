@@ -31,6 +31,7 @@
 
 #include <curl/curl.h>
 #include <quickjs.h>
+#include <sqlite3.h>
 #include <stdbool.h>
 #include <uv.h>
 
@@ -48,6 +49,7 @@ struct TJSRuntime {
     } jobs;
     uv_async_t stop;
     bool is_worker;
+    bool freeing;
     struct {
         CURLM *curlm_h;
         uv_timer_t timer;
@@ -59,9 +61,14 @@ struct TJSRuntime {
         TJSTimer *timers;
         int64_t next_timer;
     } timers;
+    struct {
+        JSValue promise_event_ctor;
+        JSValue dispatch_event_func;
+    } builtins;
 };
 
 void tjs__mod_dns_init(JSContext *ctx, JSValue ns);
+void tjs__mod_engine_init(JSContext *ctx, JSValue ns);
 void tjs__mod_error_init(JSContext *ctx, JSValue ns);
 void tjs__mod_ffi_init(JSContext *ctx, JSValue ns);
 void tjs__mod_fs_init(JSContext *ctx, JSValue ns);
@@ -99,13 +106,22 @@ int js_module_set_import_meta(JSContext *ctx, JSValue func_val, JS_BOOL use_real
 
 JSValue tjs__get_args(JSContext *ctx);
 
-int tjs__eval_bytecode(JSContext *ctx, const uint8_t *buf, size_t buf_len);
+int tjs__eval_bytecode(JSContext *ctx, const uint8_t *buf, size_t buf_len, bool check_promise);
 
 void tjs__destroy_timers(TJSRuntime *qrt);
+
+void tjs__sab_free(void *opaque, void *ptr);
+void tjs__sab_dup(void *opaque, void *ptr);
 
 uv_loop_t *TJS_GetLoop(TJSRuntime *qrt);
 TJSRuntime *TJS_NewRuntimeWorker(void);
 TJSRuntime *TJS_NewRuntimeInternal(bool is_worker, TJSRunOptions *options);
 JSValue TJS_EvalModule(JSContext *ctx, const char *filename, bool is_main);
+JSValue TJS_EvalModuleContent(JSContext *ctx,
+                              const char *filename,
+                              bool is_main,
+                              bool use_realpath,
+                              const char *content,
+                              size_t len);
 
 #endif

@@ -3,7 +3,7 @@ function logStatus(s) {
     console.log(JSON.stringify(s));
 }
 
-const exe = tjs.exepath;
+const exe = tjs.exePath;
 
 let args, status, proc, input, data, encoder = new TextEncoder(), decoder = new TextDecoder();
 
@@ -21,7 +21,7 @@ logStatus(status);
 
 proc = tjs.spawn('cat');
 console.log(`proc PID: ${proc.pid}`);
-proc.kill(tjs.SIGTERM);
+proc.kill('SIGTERM');
 status = await proc.wait();
 logStatus(status);
 status = await proc.wait();
@@ -47,6 +47,6 @@ proc.stdin.write(input);
 data = new Uint8Array(input.length);
 await proc.stdout.read(data);
 console.log(decoder.decode(data));
-proc.kill(tjs.SIGTERM);
+proc.kill('SIGTERM');
 status = await proc.wait();
 console.log(status);

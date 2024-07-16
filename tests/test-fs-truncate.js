@@ -4,7 +4,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 
-const f = await tjs.mkstemp('test_fileXXXXXX');
+const f = await tjs.makeTempFile('test_fileXXXXXX');
 const path = f.path;
 await f.write(encoder.encode('hello world'));
 const st1 = await f.stat();
@@ -20,4 +20,4 @@ await f2.truncate();
 const st2 = await f2.stat();
 await f2.close();
 assert.eq(st2.size, 0);
-await tjs.unlink(path);
+await tjs.remove(path);
