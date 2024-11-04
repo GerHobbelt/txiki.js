@@ -413,7 +413,25 @@ declare global {
         * @param path Path to the file.
         */
         function lstat(path: string): Promise<StatResult>;
-        
+
+        interface StatFsResult {
+            type: number;
+            bsize: number;
+            blocks: number;
+            bfree: number;
+            bavail: number;
+            files: number;
+            ffree: number;
+        }
+
+        /**
+        * Get file-system statistics.
+        * See [statfs(2)](https://man7.org/linux/man-pages/man2/statfs.2.html)
+        *
+        * @param path Path to the mount point.
+        */
+        function statFs(path: string): Promise<StatFsResult>;
+
         /**
         * Change permissions of a file.
         * See [chmod(2)](https://man7.org/linux/man-pages/man2/chmod.2.html)
@@ -549,6 +567,14 @@ declare global {
         function readDir(path: string): Promise<DirHandle>;
         
         /**
+        * Reads the value of a symbolic link.
+        * See [readlink(2)](https://man7.org/linux/man-pages/man2/readlink.2.html)
+        *
+        * @param path File path.
+        */
+        function readLink(path: string): Promise<string>;
+
+        /**
         * Reads the entire contents of a file.
         *
         * @param path File path.
@@ -569,6 +595,30 @@ declare global {
          * @param path Path to be removed.
          */
         function remove(path: string, options?: RemoveOptions): Promise<void>;
+
+        /**
+         * Create a hard file link.
+         * See [link(2)](https://man7.org/linux/man-pages/man2/link.2.html)
+         *
+         * @param path Source file path.
+         * @param newPath Target file path.
+         */
+        function link(path: string, newPath: string): Promise<void>;
+
+        interface SymlinkOptions {
+            /* TYpe of symbolic link to create. Applies to Windows only. */
+            type?: 'file' | 'directory' | 'junction';
+        }
+
+        /**
+         * Create a symbolic link.
+         * See [symlink(2)](https://man7.org/linux/man-pages/man2/symlink.2.html)
+         *
+         * @param path Source file path.
+         * @param newPath Target file path.
+         * @param options Options for specifying the type (Windows only).
+         */
+        function symlink(path: string, newPath: string, options?: SymlinkOptions): Promise<void>;
 
         /**
         * File watch event handler function.
