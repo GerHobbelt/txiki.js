@@ -38,9 +38,23 @@ static JSValue tjs_evalFile(JSContext *ctx, JSValue this_val, int argc, JSValue 
     size_t len;
     JSValue ret;
     filename = JS_ToCStringLen(ctx, &len, argv[0]);
-    if (!filename)
+    if (!filename) {
         return JS_EXCEPTION;
+    }
     ret = TJS_EvalModule(ctx, filename, true);
+    JS_FreeCString(ctx, filename);
+    return ret;
+}
+
+static JSValue tjs_loadScript(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    const char *filename;
+    size_t len;
+    JSValue ret;
+    filename = JS_ToCStringLen(ctx, &len, argv[0]);
+    if (!filename) {
+        return JS_EXCEPTION;
+    }
+    ret = TJS_EvalScript(ctx, filename);
     JS_FreeCString(ctx, filename);
     return ret;
 }
@@ -50,8 +64,9 @@ static JSValue tjs_evalScript(JSContext *ctx, JSValue this_val, int argc, JSValu
     size_t len;
     JSValue ret;
     str = JS_ToCStringLen(ctx, &len, argv[0]);
-    if (!str)
+    if (!str) {
         return JS_EXCEPTION;
+    }
     ret = JS_Eval(ctx, str, len, "<evalScript>", JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_ASYNC);
     JS_FreeCString(ctx, str);
     return ret;
@@ -81,11 +96,13 @@ static JSValue tjs_exepath(JSContext *ctx, JSValue this_val) {
 
     r = uv_exepath(dbuf, &size);
     if (r != 0) {
-        if (r != UV_ENOBUFS)
+        if (r != UV_ENOBUFS) {
             return tjs_throw_errno(ctx, r);
+        }
         dbuf = js_malloc(ctx, size);
-        if (!dbuf)
+        if (!dbuf) {
             return JS_EXCEPTION;
+        }
         r = uv_exepath(dbuf, &size);
         if (r != 0) {
             js_free(ctx, dbuf);
@@ -95,8 +112,9 @@ static JSValue tjs_exepath(JSContext *ctx, JSValue this_val) {
 
     JSValue ret = JS_NewStringLen(ctx, dbuf, size);
 
-    if (dbuf != buf)
+    if (dbuf != buf) {
         js_free(ctx, dbuf);
+    }
 
     return ret;
 }
@@ -106,8 +124,9 @@ static JSValue tjs_randomUUID(JSContext *ctx, JSValue this_val, int argc, JSValu
     unsigned char u[16];
 
     int r = uv_random(NULL, NULL, u, sizeof(u), 0, NULL);
-    if (r != 0)
+    if (r != 0) {
         return tjs_throw_errno(ctx, r);
+    }
 
     u[6] &= 15;
     u[6] |= 64;  // '4x'
@@ -143,6 +162,7 @@ static JSValue tjs_randomUUID(JSContext *ctx, JSValue this_val, int argc, JSValu
 static const JSCFunctionListEntry tjs_sys_funcs[] = {
     TJS_CFUNC_DEF("evalFile", 1, tjs_evalFile),
     TJS_CFUNC_DEF("evalScript", 1, tjs_evalScript),
+    TJS_CFUNC_DEF("loadScript", 1, tjs_loadScript),
     TJS_CFUNC_DEF("randomUUID", 0, tjs_randomUUID),
     TJS_CFUNC_DEF("runRepl", 0, tjs_runRepl),
     TJS_CFUNC_DEF("isArrayBuffer", 1, tjs_isArrayBuffer),
