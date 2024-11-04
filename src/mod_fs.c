@@ -320,6 +320,7 @@ static void uv__fs_req_cb(uv_fs_t *req) {
         case UV_FS_UNLINK:
         case UV_FS_CHOWN:
         case UV_FS_LCHOWN:
+        case UV_FS_FCHOWN:
         case UV_FS_CHMOD:
         case UV_FS_FCHMOD:
             arg = JS_UNDEFINED;
@@ -518,6 +519,32 @@ static JSValue tjs_file_chmod(JSContext *ctx, JSValue this_val, int argc, JSValu
         return JS_EXCEPTION;
 
     int r = uv_fs_fchmod(tjs_get_loop(ctx), &fr->req, f->fd, mode, uv__fs_req_cb);
+    if (r != 0) {
+        js_free(ctx, fr);
+        return tjs_throw_errno(ctx, r);
+    }
+
+    return tjs_fsreq_init(ctx, fr, this_val);
+}
+
+static JSValue tjs_file_chown(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    TJSFile *f = tjs_file_get(ctx, this_val);
+    if (!f)
+        return JS_EXCEPTION;
+
+    int uid;
+    if (JS_IsUndefined(argv[0]) || JS_ToInt32(ctx, &uid, argv[0]))
+        return JS_ThrowTypeError(ctx, "expected a number for uid parameter");
+
+    int gid;
+    if (JS_IsUndefined(argv[1]) || JS_ToInt32(ctx, &gid, argv[1]))
+        return JS_ThrowTypeError(ctx, "expected a number for gid parameter");
+
+    TJSFsReq *fr = js_malloc(ctx, sizeof(*fr));
+    if (!fr)
+        return JS_EXCEPTION;
+
+    int r = uv_fs_fchown(tjs_get_loop(ctx), &fr->req, f->fd, uid, gid, uv__fs_req_cb);
     if (r != 0) {
         js_free(ctx, fr);
         return tjs_throw_errno(ctx, r);
@@ -1162,7 +1189,7 @@ static JSValue tjs_fs_readfile(JSContext *ctx, JSValue this_val, int argc, JSVal
     return TJS_InitPromise(ctx, &fr->result);
 }
 
-static JSValue tjs_fs_xchown(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, bool symlinks) {
+static JSValue tjs_fs_xchown(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, int magic) {
     if (!JS_IsString(argv[0]))
         return JS_ThrowTypeError(ctx, "expected a string for path parameter");
 
@@ -1184,7 +1211,7 @@ static JSValue tjs_fs_xchown(JSContext *ctx, JSValue this_val, int argc, JSValue
         return JS_EXCEPTION;
     }
 
-    int r = (symlinks ? uv_fs_chown : uv_fs_lchown)(tjs_get_loop(ctx), &fr->req, path, uid, gid, uv__fs_req_cb);
+    int r = (magic == 1 ? uv_fs_lchown : uv_fs_chown)(tjs_get_loop(ctx), &fr->req, path, uid, gid, uv__fs_req_cb);
     JS_FreeCString(ctx, path);
     if (r != 0) {
         js_free(ctx, fr);
@@ -1192,14 +1219,6 @@ static JSValue tjs_fs_xchown(JSContext *ctx, JSValue this_val, int argc, JSValue
     }
 
     return tjs_fsreq_init(ctx, fr, JS_UNDEFINED);
-}
-
-static JSValue tjs_fs_chown(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
-    return tjs_fs_xchown(ctx, this_val, argc, argv, true);
-}
-
-static JSValue tjs_fs_lchown(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
-    return tjs_fs_xchown(ctx, this_val, argc, argv, false);
 }
 
 static JSValue tjs_fs_chmod(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
@@ -1240,6 +1259,7 @@ static const JSCFunctionListEntry tjs_file_proto_funcs[] = {
     TJS_CFUNC_DEF("sync", 0, tjs_file_sync),
     TJS_CFUNC_DEF("datasync", 0, tjs_file_datasync),
     TJS_CFUNC_DEF("chmod", 1, tjs_file_chmod),
+    TJS_CFUNC_DEF("chown", 2, tjs_file_chown),
     TJS_CGETSET_DEF("path", tjs_file_path_get, NULL),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "FileHandle", JS_PROP_C_W_E),
 };
@@ -1290,8 +1310,8 @@ static const JSCFunctionListEntry tjs_fs_funcs[] = {
     TJS_CFUNC_DEF("copyFile", 2, tjs_fs_copyfile),
     TJS_CFUNC_DEF("readDir", 1, tjs_fs_readdir),
     TJS_CFUNC_DEF("readFile", 1, tjs_fs_readfile),
-    TJS_CFUNC_DEF("chown", 3, tjs_fs_chown),
-    TJS_CFUNC_DEF("lchown", 3, tjs_fs_lchown),
+    TJS_CFUNC_MAGIC_DEF("chown", 3, tjs_fs_xchown, 0),
+    TJS_CFUNC_MAGIC_DEF("lchown", 3, tjs_fs_xchown, 1),
     TJS_CFUNC_DEF("chmod", 2, tjs_fs_chmod),
     /* Internal */
     TJS_CFUNC_DEF("mkdirSync", 2, tjs_fs_mkdir_sync),
