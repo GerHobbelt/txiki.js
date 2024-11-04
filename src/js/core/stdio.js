@@ -29,7 +29,7 @@ class InputStream extends BaseIOStream {
             throw new Error('not a terminal');
         }
 
-        const ttyMode = rawMode ? core.TTY.TTY_MODE_RAW : core.TTY.TTY_MODE_NORMAL;
+        const ttyMode = rawMode ? core.TTY_MODE_RAW : core.TTY_MODE_NORMAL;
 
         this[kStdioHandle].setMode(ttyMode);
     }
@@ -65,6 +65,12 @@ function createStdioStream(fd) {
     switch (type) {
         case 'tty': {
             const handle = new core.TTY(fd, isStdin);
+
+            // Do blocking writes for TTYs:
+            // https://github.com/nodejs/node/blob/014dad5953a632f44e668f9527f546c6e1bb8b86/lib/tty.js#L112
+            if (!isStdin && core.platform !== 'windows') {
+                handle.setBlocking(true);
+            }
 
             return new StreamType(handle, type);
         }
